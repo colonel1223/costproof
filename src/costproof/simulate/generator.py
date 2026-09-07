@@ -751,11 +751,22 @@ def _to_billing(rng: np.random.Generator, cfg: SimConfig, log_q: np.ndarray,
 
     usage = pd.concat(blocks, ignore_index=True)
     purchases = _commitment_purchase_rows(cfg, usage, dates)
-    # Skip the concat entirely when there are no commitment purchases. pandas
-    # deprecated concatenating empty or all-NA frames because the resulting
-    # dtypes are ambiguous, and the behaviour will change in a future version.
     if purchases.empty:
         return usage
+
+    # Align dtypes before concatenating. Purchase rows legitimately have no
+    # resource, no quantity and no SKU, so those columns arrive as all-NA.
+    # pandas 2.x warns that all-NA columns will stop participating in dtype
+    # inference in a future version, which would silently change the result's
+    # types. Casting each all-NA column to the dtype it must end up with makes
+    # the outcome explicit and identical across pandas versions.
+    #
+    # Reproducing this required matching the reporting machine's pandas 2.3.3;
+    # it does not fire on 3.0. Environment differences are part of the bug.
+    purchases = purchases.reindex(columns=usage.columns)
+    for column, dtype in usage.dtypes.items():
+        if purchases[column].isna().all():
+            purchases[column] = purchases[column].astype(dtype)
     return pd.concat([usage, purchases], ignore_index=True)
 
 
