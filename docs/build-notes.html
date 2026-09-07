@@ -1,0 +1,1400 @@
+<title>CostProof Build Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap">
+
+<style>
+  :root {
+    --ground:#f5f7f9; --surface:#ffffff; --surface-alt:#eaeef3;
+    --ink:#121821; --ink-soft:#3d4854; --muted:#626e7d;
+    --rule:#d8dee6; --rule-soft:#e6eaf0;
+    --accent:#0a5a86; --accent-soft:#e3eef5;
+    --good:#1a6340; --good-soft:#e6f1ec;
+    --warn:#8a5a08; --warn-soft:#f9f0dd;
+    --bad:#8c2f22; --bad-soft:#f7e7e4;
+    --measure:70ch;
+    --s1:.35rem; --s2:.7rem; --s3:1.1rem; --s4:1.7rem; --s5:2.6rem; --s6:4rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#0e1319; --surface:#161d26; --surface-alt:#1d2530;
+      --ink:#e6ebf1; --ink-soft:#b8c2ce; --muted:#8794a3;
+      --rule:#2b3540; --rule-soft:#232c36;
+      --accent:#62b3dd; --accent-soft:#14313f;
+      --good:#6dc79b; --good-soft:#14301f;
+      --warn:#e0b25f; --warn-soft:#322611;
+      --bad:#e08f80; --bad-soft:#331a16;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#0e1319; --surface:#161d26; --surface-alt:#1d2530;
+    --ink:#e6ebf1; --ink-soft:#b8c2ce; --muted:#8794a3;
+    --rule:#2b3540; --rule-soft:#232c36;
+    --accent:#62b3dd; --accent-soft:#14313f;
+    --good:#6dc79b; --good-soft:#14301f;
+    --warn:#e0b25f; --warn-soft:#322611;
+    --bad:#e08f80; --bad-soft:#331a16;
+  }
+
+  * { box-sizing:border-box; }
+  body {
+    background:var(--ground); color:var(--ink);
+    font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,sans-serif;
+    font-size:16.5px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:920px; margin:0 auto; padding:var(--s5) var(--s4) var(--s6); }
+
+  .masthead { border-bottom:2px solid var(--ink); padding-bottom:var(--s3); margin-bottom:var(--s4); }
+  .eyebrow {
+    font-family:"IBM Plex Mono",monospace; font-size:.68rem; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 var(--s2);
+  }
+  h1 {
+    font-family:"Source Serif 4",Georgia,serif; font-size:clamp(2rem,5vw,2.7rem);
+    font-weight:700; line-height:1.1; letter-spacing:-.015em; margin:0 0 var(--s2);
+  }
+  .standfirst { font-family:"Source Serif 4",Georgia,serif; font-size:1.12rem;
+    color:var(--ink-soft); margin:0; max-width:var(--measure); }
+
+  section { margin-top:var(--s5); }
+  h2 {
+    font-family:"Source Serif 4",Georgia,serif; font-size:1.6rem; font-weight:700;
+    margin:0 0 var(--s3); padding-bottom:var(--s2); border-bottom:1px solid var(--rule);
+    display:flex; align-items:baseline; gap:.7rem;
+  }
+  h2 .num { font-family:"IBM Plex Mono",monospace; font-size:.78rem; font-weight:500;
+    color:var(--accent); flex:none; }
+  h3 { font-size:1rem; font-weight:600; margin:var(--s4) 0 var(--s2); }
+  h3:first-of-type { margin-top:0; }
+  h4 { font-size:.88rem; font-weight:600; margin:var(--s3) 0 var(--s1);
+    color:var(--ink-soft); }
+  p,li { max-width:var(--measure); }
+  p { margin:0 0 var(--s3); }
+  ul,ol { margin:0 0 var(--s3); padding-left:1.2rem; }
+  li { margin-bottom:var(--s1); }
+  code {
+    font-family:"IBM Plex Mono",monospace; font-size:.86em;
+    background:var(--surface-alt); padding:.1em .38em; border-radius:3px;
+  }
+  pre {
+    font-family:"IBM Plex Mono",monospace; font-size:.82rem; line-height:1.55;
+    background:var(--surface); border:1px solid var(--rule);
+    padding:var(--s3); overflow-x:auto; margin:var(--s3) 0;
+  }
+  pre code { background:none; padding:0; }
+
+  /* progress tracker */
+  .track { display:flex; flex-direction:column; gap:2px; margin:var(--s3) 0; }
+  .track div {
+    display:flex; gap:.7rem; align-items:baseline; padding:.42rem .8rem;
+    background:var(--surface); border-left:3px solid var(--rule); font-size:.92rem;
+  }
+  .track div.done { border-left-color:var(--good); }
+  .track div.done .mark { color:var(--good); }
+  .track div.now { border-left-color:var(--accent); background:var(--accent-soft); font-weight:600; }
+  .track div.now .mark { color:var(--accent); }
+  .track div.block { border-left-color:var(--warn); }
+  .track div.block .mark { color:var(--warn); }
+  .track .mark { font-family:"IBM Plex Mono",monospace; font-size:.75rem; flex:none; width:3.4rem; color:var(--muted); }
+
+  /* scoreboard */
+  .score { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+    gap:1px; background:var(--rule); border:1px solid var(--rule); margin:var(--s3) 0; }
+  .score > div { background:var(--surface); padding:var(--s3); }
+  .score .k { font-family:"IBM Plex Mono",monospace; font-size:.66rem;
+    letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin:0 0 .3rem; }
+  .score .v { font-family:"Source Serif 4",Georgia,serif; font-size:1.75rem;
+    font-weight:700; line-height:1.05; letter-spacing:-.02em; margin:0 0 .3rem;
+    font-variant-numeric:tabular-nums; }
+  .score .v.up { color:var(--good); }
+  .score .v.down { color:var(--bad); }
+  .score .c { font-size:.8rem; color:var(--ink-soft); margin:0; max-width:none; }
+
+  /* glossary */
+  .gloss { border-top:1px solid var(--rule-soft); padding:var(--s3) 0; margin:0; }
+  .gloss:first-of-type { border-top:none; padding-top:var(--s2); }
+  .gloss dt {
+    font-weight:600; font-size:.96rem; margin-bottom:.25rem;
+    display:flex; gap:.6rem; align-items:baseline; flex-wrap:wrap;
+  }
+  .gloss dt .also {
+    font-family:"IBM Plex Mono",monospace; font-size:.72rem; font-weight:400;
+    color:var(--muted);
+  }
+  .gloss dd { margin:0 0 var(--s3); color:var(--ink-soft); font-size:.94rem; max-width:var(--measure); }
+  .gloss dd:last-child { margin-bottom:0; }
+
+  .scroller { overflow-x:auto; margin:var(--s3) 0; }
+  table { border-collapse:collapse; width:100%; font-size:.88rem; min-width:460px; }
+  th,td { text-align:left; padding:.45rem .7rem; border-bottom:1px solid var(--rule-soft); vertical-align:top; }
+  thead th { font-size:.67rem; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--muted); font-weight:600; border-bottom:1px solid var(--rule); }
+  td code { white-space:nowrap; }
+  td.n { text-align:right; font-variant-numeric:tabular-nums;
+    font-family:"IBM Plex Mono",monospace; font-size:.82rem; }
+  tr.hi td { background:var(--good-soft); font-weight:600; }
+
+  .note { border-left:3px solid var(--warn); background:var(--warn-soft);
+    padding:var(--s3) var(--s4); margin:var(--s3) 0; }
+  .note p:last-child { margin-bottom:0; }
+  .note .eyebrow { color:var(--warn); }
+  .note.key { border-left-color:var(--accent); background:var(--accent-soft); }
+  .note.key .eyebrow { color:var(--accent); }
+
+  /* bug log */
+  .bug { border:1px solid var(--rule); background:var(--surface);
+    padding:var(--s3) var(--s4); margin:var(--s3) 0; }
+  .bug h4 { margin-top:0; font-size:.95rem; color:var(--ink); }
+  .bug p { font-size:.92rem; margin-bottom:var(--s2); }
+  .bug p:last-child { margin-bottom:0; }
+  .bug .lesson { border-top:1px solid var(--rule-soft); padding-top:var(--s2);
+    margin-top:var(--s3); color:var(--ink-soft); }
+  .bug .lesson strong { color:var(--ink); }
+
+  .later { opacity:.72; }
+
+  footer { margin-top:var(--s6); padding-top:var(--s3); border-top:1px solid var(--rule);
+    color:var(--muted); font-size:.84rem; }
+  footer p { max-width:none; }
+
+  @media (max-width:640px){ .wrap{padding:var(--s4) var(--s3) var(--s5);} }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important;} }
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Running notes · updated 7 September 2026</p>
+  <h1>CostProof Build Notes</h1>
+  <p class="standfirst">What we've done, why we did it, every number it produced, and every
+    term worth knowing — in the order we hit them.</p>
+</header>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">01</span> Where we are</h2>
+
+  <p>Thirteen of the fourteen things the project set out to demonstrate are built and
+    running. The repository has eight commits, 5,161 lines of Python, 265 lines of SQL and
+    just over a thousand lines of written documentation.</p>
+
+  <div class="track">
+    <div class="done"><span class="mark">DONE</span><span>Research the problem, write the causal engine</span></div>
+    <div class="done"><span class="mark">DONE</span><span>Create the GitHub repository</span></div>
+    <div class="done"><span class="mark">DONE</span><span>First commit and push — code is public</span></div>
+    <div class="done"><span class="mark">DONE</span><span>Install the package, generate 216,036 rows of billing data</span></div>
+    <div class="done"><span class="mark">DONE</span><span>Query the data with SQL</span></div>
+    <div class="done"><span class="mark">DONE</span><span>Warehouse: bronze → silver → gold</span></div>
+    <div class="done"><span class="mark">DONE</span><span>Cost allocation and unit economics</span></div>
+    <div class="done"><span class="mark">DONE</span><span>Classification: real waste vs. normal growth</span></div>
+    <div class="done"><span class="mark">DONE</span><span>Validation harness — four estimators scored against known truth</span></div>
+    <div class="done"><span class="mark">DONE</span><span>RAG over the internal knowledge base</span></div>
+    <div class="done"><span class="mark">DONE</span><span>Agentic review with a tool registry and governance gates</span></div>
+    <div class="done"><span class="mark">DONE</span><span>watsonx integration written, with graceful degradation</span></div>
+    <div class="done"><span class="mark">DONE</span><span>Excel business case — NPV, sensitivity, benefit-to-cost</span></div>
+    <div class="now"><span class="mark">NOW</span><span>Commit the business case, republish these notes</span></div>
+    <div><span class="mark">NEXT</span><span>MCP server exposing the tool registry</span></div>
+    <div><span class="mark">NEXT</span><span>R cross-validation of the causal estimates</span></div>
+    <div class="block"><span class="mark">BLOCK</span><span>watsonx service association — institutional account restriction</span></div>
+  </div>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">02</span> The scoreboard</h2>
+
+  <p>This is the part that matters on an application. Everything below was measured by code
+    in the repository against a dataset where the true answer is known, so every claim is
+    checkable rather than asserted.</p>
+
+  <div class="score">
+    <div>
+      <p class="k">Naive method false positives</p>
+      <p class="v down">80%</p>
+      <p class="c">Of the interventions that genuinely did nothing, before/after credited
+        four in five with a real saving.</p>
+    </div>
+    <div>
+      <p class="k">CostProof false positives</p>
+      <p class="v up">13.3%</p>
+      <p class="c">Same interventions, same data, permutation-based inference.</p>
+    </div>
+    <div>
+      <p class="k">Confidence interval coverage</p>
+      <p class="v up">27% → 91%</p>
+      <p class="c">How often the 95% interval actually contains the truth. It should
+        be 95%.</p>
+    </div>
+    <div>
+      <p class="k">Annual misattribution</p>
+      <p class="v down">$450,968</p>
+      <p class="c">Savings assigned to the wrong action, or claimed for actions that did
+        nothing, out of $2.02M genuinely saved.</p>
+    </div>
+    <div>
+      <p class="k">Net annual misstatement</p>
+      <p class="v down">$326,700</p>
+      <p class="c">What the aggregate number is off by once individual errors net out
+        against each other.</p>
+    </div>
+    <div>
+      <p class="k">Business case NPV</p>
+      <p class="v up">$557,508</p>
+      <p class="c">Five years, 12% discount rate, benefit-to-cost ratio 6.27×.</p>
+    </div>
+  </div>
+
+  <h3>Four estimators, scored against known truth</h3>
+
+  <p>The simulator knows the real effect of every one of the 117 interventions studied,
+    including the 25% that were designed to do nothing. Each estimator was run blind and
+    scored.</p>
+
+  <div class="scroller">
+    <table>
+      <thead><tr>
+        <th>Method</th><th class="n">Bias</th><th class="n">RMSE</th>
+        <th class="n">Coverage</th><th class="n">False pos.</th><th class="n">Power</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>Naive before/after</td><td class="n">+0.098</td><td class="n">0.238</td>
+          <td class="n">27.4%</td><td class="n">80.0%</td><td class="n">100%</td></tr>
+        <tr><td>DiD, two-way fixed effects</td><td class="n">+0.066</td><td class="n">0.199</td>
+          <td class="n">23.1%</td><td class="n">83.3%</td><td class="n">100%</td></tr>
+        <tr class="hi"><td>DiD, permutation inference</td><td class="n">+0.066</td><td class="n">0.199</td>
+          <td class="n">91.5%</td><td class="n">13.3%</td><td class="n">90.8%</td></tr>
+        <tr><td>Synthetic control</td><td class="n">+0.083</td><td class="n">0.244</td>
+          <td class="n">83.8%</td><td class="n">0.0%</td><td class="n">48.3%</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note key">
+    <p class="eyebrow">The finding to lead with</p>
+    <p>Rows two and three have <strong>identical point estimates</strong>. Same number, same
+      data, same model. Only the standard error differs. That moves coverage from 23% to 91%
+      and cuts false positives from 83% to 13%.</p>
+    <p>The lesson generalises well beyond cloud cost: <strong>the estimate was never the
+      problem — the uncertainty around it was.</strong> A method can be nearly unbiased and
+      still be useless for decisions, because a confidence interval that only contains the
+      truth a quarter of the time will approve almost anything.</p>
+  </div>
+
+  <h3>Why 100% power is a red flag, not a win</h3>
+  <p>The naive method detects a real effect every single time. It also detects an effect
+    when there isn't one, four times in five. A test that always says yes has perfect power
+    and no information content. Synthetic control is the mirror image: it never raises a
+    false alarm, but it only catches half the real effects. Permutation DiD is the only row
+    that is honest in both directions at once.</p>
+
+  <h3>What the agent found in the bill</h3>
+  <div class="scroller">
+    <table>
+      <thead><tr><th>Finding</th><th class="n">Annualised</th><th>Governance</th></tr></thead>
+      <tbody>
+        <tr><td>Spend with no identifiable owner (10.6% untagged)</td>
+          <td class="n">$970,158</td><td>Gated — human approval</td></tr>
+        <tr><td>Prepaid capacity never consumed</td>
+          <td class="n">$165,406</td><td>Gated — human approval</td></tr>
+        <tr><td>Ten resources prioritised for investigation</td>
+          <td class="n">$212,576</td><td>Gated — human approval</td></tr>
+        <tr><td>Four of five units grew more efficient; one degraded</td>
+          <td class="n">not quantified</td><td>Auto-approvable</td></tr>
+        <tr class="hi"><td><strong>Total identified</strong></td>
+          <td class="n"><strong>$1,348,140</strong></td><td>7 tool calls, all logged</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>The waste classifier, at the operating points an analyst actually sees</h3>
+
+  <p>Trained on 280 resources, tested on 120 the model has never seen — 61,440 held-out
+    resource-days at 5.2% waste prevalence. The comparison row is the threshold rule most
+    FinOps tools ship with: flag anything above 2× its 28-day average.</p>
+
+  <div class="scroller">
+    <table>
+      <thead><tr><th>Queue depth</th><th class="n">Precision</th><th class="n">Recall</th>
+        <th>What it means</th></tr></thead>
+      <tbody>
+        <tr class="hi"><td>Top 10 alerts</td><td class="n">100.0%</td><td class="n">25.6%</td>
+          <td>Ten investigations, ten real problems, zero wasted</td></tr>
+        <tr><td>Top 25 alerts</td><td class="n">72.0%</td><td class="n">46.2%</td>
+          <td>Still worth an analyst's morning</td></tr>
+        <tr><td>Top 50 alerts</td><td class="n">52.0%</td><td class="n">66.7%</td>
+          <td>Coin flip — the useful limit</td></tr>
+        <tr><td>Top 100 alerts</td><td class="n">38.0%</td><td class="n">97.4%</td>
+          <td>Catches nearly everything, mostly noise</td></tr>
+        <tr><td>Threshold-rule baseline</td><td class="n">28.0%</td><td class="n">2.8%</td>
+          <td>318 alerts raised, and it still misses 97% of the waste</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>ROC AUC is <strong>0.648</strong> and PR AUC <strong>0.174</strong> against a 0.052
+    prevalence baseline — 3.3× lift. Both are reported in the output rather than buried,
+    because the honest reading is that the model <em>ranks the top of the queue extremely
+    well and the middle poorly</em>. Only the top is actionable, and the report says so.</p>
+
+  <div class="note key">
+    <p class="eyebrow">Why this framing beats a headline accuracy number</p>
+    <p>At 5.2% prevalence, a model that predicts "no waste" for everything is
+      <strong>94.8% accurate</strong> and worth nothing. Precision@k answers the question the
+      business actually has — <em>if I give an analyst ten things to look at tomorrow, how
+      many are real?</em> — and it is the metric that makes the baseline comparison damning:
+      the threshold rule raises 318 alerts to find 2.8% of the problem.</p>
+  </div>
+
+  <h3>Other components</h3>
+  <ul>
+    <li><strong>Retrieval:</strong> 22 chunks, 20 evaluation questions, <strong>recall@3
+      85%</strong>. Broken out: 100% when the question uses the corpus's own vocabulary, 62%
+      when paraphrased. The gap is the honest limitation of lexical retrieval.</li>
+    <li><strong>Business case:</strong> five sheets, 99 formulas, zero formula errors,
+      NPV $557,508 over five years at a 12% discount rate.</li>
+  </ul>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">03</span> What we actually did, step by step</h2>
+
+  <h3>Step 1 — Created a repository on GitHub</h3>
+  <p><strong>Goal:</strong> get the project a public web address so it can go on an
+    application. A project on your laptop is invisible; nobody can look at it.</p>
+<pre><code>git config user.name "Spencer Cottrell"
+git config user.email "261395650+colonel1223@users.noreply.github.com"
+git branch -M main
+gh repo create colonel1223/costproof --public</code></pre>
+  <p><strong>Why the email mattered:</strong> git stamps an email on every commit, and
+    GitHub uses only that to decide whose work it is. Wrong email → the commit shows as an
+    anonymous ghost and doesn't count on your profile. The <code>@users.noreply</code>
+    address is GitHub's relay: it attributes correctly without exposing your real address in
+    a permanent public record.</p>
+
+  <h3>Step 2 — First commit and push</h3>
+<pre><code>git add -A          # pick the files
+git commit -m "..." # package them into a snapshot
+git remote add origin https://github.com/colonel1223/costproof.git
+git push -u origin main   # send it</code></pre>
+  <p><strong>The one error you hit:</strong> <code>index.lock: File exists</code>. Git writes
+    a lock file while it's mid-operation and deletes it when done. A crashed or interrupted
+    git process leaves it behind, blocking everything after. <code>rm -f .git/index.lock</code>
+    clears it. Safe — it's a temp file, never your work.</p>
+
+  <h3>Step 3 — Installed the package and generated the data</h3>
+<pre><code>pip install -e ".[dev]"      # install, in editable mode
+python -m costproof.cli data # run the simulator</code></pre>
+  <p>Produced <strong>216,036 rows</strong> across five files. <code>data/bronze/</code> holds
+    the raw billing feed; <code>data/gold/</code> holds the supporting tables.</p>
+
+  <h3>Step 4 — Looked at one row</h3>
+  <p>The single most useful thing so far. One row of the billing feed says: on 1 Jan 2025,
+    resource <code>r-0000</code> — owned by the search team, running in Ireland — consumed
+    119 machine-hours at $0.384/hour, listing at $45.72 and costing $42.06 after discount.</p>
+  <p>216,036 rows = <strong>400 resources × 540 days</strong>. Eighteen months of an
+    $8.9M/year cloud bill.</p>
+
+  <h3>Step 5 — Built the silver layer in SQL</h3>
+  <p><code>sql/silver_billing.sql</code>, 145 lines. Bronze is the raw feed and never gets
+    edited. Silver is where the feed becomes analysable:</p>
+  <ul>
+    <li><code>COALESCE(Tags['business_unit'], 'unallocated')</code> — turn a missing tag into
+      an explicit category rather than a null that silently drops rows out of every
+      <code>GROUP BY</code>.</li>
+    <li>An <code>is_tagged</code> boolean, so "how much can't we attribute" is one
+      <code>WHERE</code> clause away.</li>
+    <li>Derived savings measures — the gap between list, contracted and effective cost —
+      computed once here instead of re-derived differently in five downstream queries.</li>
+  </ul>
+  <p><strong>The design principle:</strong> a decision made once in the silver layer is a
+    decision the whole project agrees on. A decision made ad hoc in each query is five
+    decisions that will eventually disagree.</p>
+
+  <h3>Step 6 — Built the gold layer: unit economics</h3>
+  <p><code>sql/gold_unit_economics.sql</code>, 120 lines of common table expressions joining
+    spend to business drivers on 28-day trailing windows.</p>
+  <p>The result answers the question the invoice can't: <em>every business unit's bill went
+    up — which of them is actually a problem?</em> Four of the five were spending more per
+    month while spending <strong>less per unit of output</strong>. That's growth. One,
+    <code>bu-datasci</code>, was spending more per unit. That's the only real regression, and
+    on the invoice alone it looks identical to the other four.</p>
+  <p>The join is an <code>INNER JOIN</code>, which deliberately drops <code>unallocated</code>
+    and <code>bu-platform</code>: neither has a business driver, so a unit cost for them would
+    have a fabricated denominator. That exclusion is reported as a caveat rather than left for
+    a reader to discover.</p>
+
+  <h3>Step 7 — Waste detection with a classifier</h3>
+  <p><code>src/costproof/ml/waste.py</code>, 315 lines. A gradient-boosted classifier over
+    nine <strong>relative</strong> features — cost drift versus the resource's own baseline,
+    coefficient of variation, weekend-to-weekday ratio.</p>
+  <p><strong>Relative, not absolute, and that is the whole trick.</strong> Train on absolute
+    dollars and the model learns "expensive resources are wasteful," which is not a finding,
+    it's a restatement of the price list. Train on each resource's deviation from its own
+    history and it learns what an idle machine's cost profile looks like regardless of size.</p>
+  <p>The evaluation split is by <strong>resource</strong>, not by row. Split by row and the
+    same machine appears in both training and test, the model memorises it, and the score is
+    meaningless. That is data leakage, and it is the most common way a model reports 97%
+    accuracy and then fails in production.</p>
+
+  <h3>Step 8 — The validation harness</h3>
+  <p><code>src/costproof/causal/validate.py</code>. Runs all four estimators over all 117
+    interventions and scores each against the simulator's known truth. This is the file that
+    produced the table in section 02, and it is the reason the project can make claims instead
+    of assertions.</p>
+
+  <h3>Step 9 — A retrieval layer over the runbooks</h3>
+  <p>Three knowledge documents — a remediation runbook, a measurement policy, a pricing
+    reference — chunked on markdown headings into 22 passages. Retrieval is TF-IDF over word
+    1–2 grams <em>and</em> character 4–5 grams, with a relevance floor below which nothing is
+    returned at all.</p>
+  <p>The character n-grams exist because cloud vocabulary is full of near-misses:
+    <code>rightsizing</code> / <code>right-sizing</code>, <code>p4d.24xlarge</code> /
+    <code>p4d</code>. Word-level matching treats those as unrelated tokens; character-level
+    matching sees the overlap.</p>
+
+  <h3>Step 10 — The agent, its tools, and its gates</h3>
+  <p><code>src/costproof/agent/</code>. A tool registry where each tool declares a JSON
+    schema, returns a structured <code>ToolResult</code> carrying its own method description
+    and caveats, and gets logged with arguments and elapsed time.</p>
+  <p>Findings pass through a <strong>governance gate</strong>: anything above $1,000/year, or
+    anything that would delete or modify a resource, is marked as requiring human approval and
+    is not executed. Three of four findings in the last run were gated. The audit record is
+    written to <code>outputs/audit/</code> as JSON with the run ID, backend, Python version,
+    platform, every tool call and every retrieved source.</p>
+
+  <h3>Step 11 — watsonx, and the reason it degrades gracefully</h3>
+  <p><code>llm.py</code> defines two backends behind one interface: <code>WatsonxBackend</code>
+    calling <code>ibm/granite-3-8b-instruct</code> with greedy decoding, and
+    <code>DeterministicBackend</code>, which needs no credentials at all.</p>
+  <div class="note key">
+    <p class="eyebrow">Say this in the interview</p>
+    <p>The fallback isn't a convenience. Because the offline backend produces
+      <strong>every number in the report</strong>, it is a standing proof that no number
+      depends on the language model. The model narrates; it never calculates. If the fallback
+      couldn't reproduce the figures, that would be evidence the model was doing arithmetic
+      somewhere it shouldn't.</p>
+  </div>
+  <p><code>check.py</code> is a six-stage credential checker, written because the three
+    common watsonx failures all produce error messages that name the wrong cause — a missing
+    service association returns a permission error that never mentions the association, a
+    region mismatch looks like bad credentials, and a space ID passed where a project ID
+    belongs returns a not-found rather than a type error.</p>
+
+  <h3>Step 12 — The report</h3>
+  <p><code>python -m costproof.cli review</code> produces <code>reports/cost-review.md</code>:
+    four findings, each with its dollar impact, the method used to measure it, the recommended
+    action, the risk of taking that action, and its caveats — plus a governance summary, the
+    full tool-call log with timings, and every source retrieved.</p>
+
+  <h3>Step 13 — The CFO business case in Excel</h3>
+  <p><code>scripts/build_business_case.py</code> generates a five-sheet workbook: assumptions,
+    the value model, measurement accuracy, sensitivity, and a summary. 99 formulas, zero
+    formula errors, blue for inputs and black for formulas so a finance reader can see at a
+    glance which cells are assumptions.</p>
+  <p>Five-year NPV <strong>$557,508</strong> at a 12% discount rate, benefit-to-cost ratio
+    <strong>6.27×</strong>. Actions measured rise from 79 to 138 per year; avoided wasted
+    effort rises from $140,986 to $246,279; net cash flow from $81,546 to $226,839.</p>
+  <div class="note">
+    <p class="eyebrow">The deliberate omission</p>
+    <p>The $115,746 of annual misstatement reduction is <strong>shown on the sheet and
+      excluded from the NPV</strong>. Reporting a number more accurately does not by itself
+      produce cash, and a business case that books accounting accuracy as savings is the kind
+      of thing a CFO stops reading. Leaving it out and saying why is worth more than the
+      $115,746 would have added.</p>
+  </div>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">04</span> Nine bugs, and what each one taught</h2>
+
+  <p>Keep these. They are the difference between a project you built and a project you can
+    talk about. Every one of them was found by checking output against something known,
+    not by reading code.</p>
+
+  <div class="bug">
+    <h4>1. Untagged spend reported as 0.0%</h4>
+    <p>The tagging check used <code>if value is not None</code>. Pandas represents a missing
+      value as <code>NaN</code>, and <code>NaN is not None</code> evaluates to
+      <code>True</code> — so every missing tag counted as present. Fixed with
+      <code>isinstance(v, str)</code>.</p>
+    <p class="lesson"><strong>Lesson:</strong> a result of exactly zero is a bug until proven
+      otherwise. Real data is never that clean.</p>
+  </div>
+
+  <div class="bug">
+    <h4>2. AI/ML showed as 63% of all spend</h4>
+    <p>Quantity was being derived from the pricing unit, so a <code>p4d.24xlarge</code> at
+      $32.77/hour swamped everything else in the simulated estate. Fixed by giving every SKU
+      an explicit <code>base_units_per_day</code>.</p>
+    <p class="lesson"><strong>Lesson:</strong> when one category dominates implausibly, check
+      the generating mechanism before you check the analysis. Also — the first fix attempted
+      was a regex patch whose non-greedy match spanned multiple entries and would have
+      corrupted the file. Structural edits belong in structural tools.</p>
+  </div>
+
+  <div class="bug">
+    <h4>3. The naive estimator's bias had the wrong sign</h4>
+    <p>The whole premise is that before/after <em>overstates</em> savings. The first
+      simulator produced a bias of <strong>+0.106</strong> in the wrong direction — the naive
+      method was understating. That meant the simulated world didn't contain the phenomenon
+      the project exists to correct.</p>
+    <p>Six changes fixed it: waste made persistent rather than transient; interventions made
+      to terminate that persistence; the AR(1) persistence parameter raised from 0.72 to 0.90;
+      a two-pool assignment separating genuinely-remediated resources from noise; the
+      waste-free pool made to exclude <em>all</em> waste rather than just the targeted kind;
+      and the intervention trigger switched to a 120-day rolling baseline.</p>
+    <p class="lesson"><strong>Lesson:</strong> the bug was diagnosed by plotting the average
+      spend profile around the intervention date and seeing it already at −0.37 fifteen days
+      <em>before</em> treatment. <strong>Plot the thing before you theorise about it.</strong></p>
+  </div>
+
+  <div class="bug">
+    <h4>4. DiD confidence intervals covered the truth 23% of the time</h4>
+    <p>Cluster-robust standard errors are asymptotic in the number of clusters. With one
+      treated unit there is no asymptotic regime, and the formula returns a number that looks
+      like a standard error and isn't one. Replaced with permutation inference —
+      re-randomise the treatment assignment thousands of times and read the p-value off the
+      resulting distribution. Coverage went to 91%.</p>
+    <p class="lesson"><strong>Lesson:</strong> a standard error is a claim about a sampling
+      distribution. If the assumptions behind that distribution don't hold, the number is
+      arithmetic without meaning.</p>
+  </div>
+
+  <div class="bug">
+    <h4>5. The parallel-trends test rejected 98.3% of cases</h4>
+    <p>It was built on the same broken standard errors. Rebuilt on randomization inference.
+      Now 88% of interventions pass, and the estimates that pass have 95.1% coverage — which
+      is what a filter is supposed to do: not improve every estimate, but tell you which ones
+      to trust.</p>
+    <p class="lesson"><strong>Lesson:</strong> when a diagnostic fires on almost everything,
+      suspect the diagnostic.</p>
+  </div>
+
+  <div class="bug">
+    <h4>6. The first full run gave 7% coverage across every method at once</h4>
+    <p>The analysis used an 84-day pre-treatment window while the simulator's detection lag
+      was 20–75 days — so the "before" period contained the waste the intervention was about
+      to fix, plus the period where it was already being noticed. Every method was estimating
+      against a contaminated baseline.</p>
+    <p class="lesson"><strong>Lesson, and the one to remember:</strong> <strong>when every
+      method fails together, suspect the data specification, not the methods.</strong>
+      Independent methods do not share a bug; they share an input.</p>
+  </div>
+
+  <div class="bug">
+    <h4>7. A $2.58M phantom saving on the untagged bucket</h4>
+    <p>Commitment purchase rows have a <code>ContractedCost − EffectiveCost</code> gap that
+      is meaningless — it's the prepayment, not a discount. Summing it produced $2.58M of
+      savings that never existed. Fixed by guarding every savings measure with
+      <code>CASE WHEN ChargeCategory = 'Usage'</code>.</p>
+    <p class="lesson"><strong>Lesson:</strong> an arithmetic operation being <em>valid</em> on
+      a column doesn't mean it's <em>meaningful</em> for every row in it.</p>
+  </div>
+
+  <div class="bug">
+    <h4>8. The Excel model had zero formula errors and wrong numbers — three times</h4>
+    <p>Row references like <code>$B$11</code> were hardcoded into sheets whose rows are
+      generated dynamically. Everything evaluated cleanly; analyst time read
+      <strong>−$4,752,000</strong> instead of <strong>−$15,840</strong>. Fixed by having each
+      sheet-building function return a label-to-cell map, so downstream formulas ask for
+      "the cell holding analyst hourly rate" rather than "B11".</p>
+    <p class="lesson"><strong>Lesson:</strong> a clean recalculation proves your formulas
+      <em>evaluate</em>. It says nothing about whether they point at the right cells. Check
+      two or three values by hand before building out a grid.</p>
+  </div>
+
+  <div class="bug">
+    <h4>9. IRR came back as n/a and payback as −0.4 years</h4>
+    <p>Not a bug — the project is cash-positive in year one, so the cash-flow series never
+      changes sign and IRR is mathematically undefined. Replaced with a benefit-to-cost ratio
+      of 6.27× plus a note explaining why IRR is absent.</p>
+    <p class="lesson"><strong>Lesson:</strong> knowing when a standard metric doesn't apply is
+      worth more than producing it anyway. A finance reader will notice either way.</p>
+  </div>
+
+  <div class="note">
+    <p class="eyebrow">One more, about reproducibility</p>
+    <p>A pandas <code>FutureWarning</code> couldn't be reproduced in the cloud environment
+      because it runs pandas 3.0.2 and your Mac runs 2.3.3 — downgraded because
+      <code>ibm-watsonx-ai</code> pins <code>pandas&lt;2.4.0</code>. The first diagnosis
+      ("empty frame") was wrong; the real cause was all-NA columns in a concat. <strong>A
+      dependency you didn't choose can pin a version you didn't notice, and version drift
+      between two machines is a real and ordinary source of "works on mine."</strong></p>
+  </div>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">05</span> Terms — the command line</h2>
+  <dl class="gloss">
+    <dt>Terminal <span class="also">a.k.a. console</span></dt>
+    <dd>The window where you type commands instead of clicking. Just a place to work — it
+      isn't a language or a tool itself.</dd>
+
+    <dt>Shell <span class="also">zsh, bash</span></dt>
+    <dd>The program running <em>inside</em> the terminal that reads what you type and runs
+      it. macOS defaults to <code>zsh</code>. Terminal is the window; shell is the thing
+      listening.</dd>
+
+    <dt>CLI <span class="also">command-line interface</span></dt>
+    <dd>Any program you drive by typing rather than clicking. <code>git</code> is a CLI.
+      <code>python -m costproof.cli</code> is the CLI we built for this project.</dd>
+
+    <dt>Directory</dt>
+    <dd>A folder. <code>cd</code> = change directory, <code>ls</code> = list contents,
+      <code>pwd</code> = print working directory (where am I).</dd>
+
+    <dt>Path</dt>
+    <dd>A file's address. <code>~</code> means your home folder, so
+      <code>~/Projects/costproof</code> is <code>/Users/spencer/Projects/costproof</code>.
+      A leading <code>.</code> (like <code>.git</code>) means hidden — <code>ls</code> won't
+      show it unless you pass <code>-a</code>.</dd>
+
+    <dt>Flag <span class="also">option, switch</span></dt>
+    <dd>A modifier after a command. In <code>git add -A</code>, the <code>-A</code> is a flag
+      meaning "all files." In <code>ls -lh</code>: <code>l</code> = long format,
+      <code>h</code> = human-readable sizes.</dd>
+
+    <dt>Environment variable</dt>
+    <dd>A named value the shell hands to every program it starts. Credentials live here
+      rather than in code, which is why <code>WATSONX_API_KEY</code> is read from the
+      environment and never appears in a source file.</dd>
+
+    <dt><code>.env</code> file</dt>
+    <dd>A local file of <code>KEY=value</code> lines, loaded into the environment at startup
+      and listed in <code>.gitignore</code> so it is never committed. A credential is safe in
+      exactly two places: this file, and the provider's own console.</dd>
+
+    <dt><code>(base)</code> in your prompt</dt>
+    <dd>Tells you which Python environment is active. You're in Anaconda's default,
+      called <code>base</code>.</dd>
+  </dl>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">06</span> Terms — git and GitHub</h2>
+
+  <div class="note">
+    <p class="eyebrow">The distinction people get wrong</p>
+    <p><strong>Git</strong> is a program on your laptop that tracks changes to files.
+      <strong>GitHub</strong> is a website that stores copies of git projects online. They are
+      different things by different companies. Git works fine with no internet; GitHub is
+      where you put it so others can see it.</p>
+  </div>
+
+  <dl class="gloss">
+    <dt>Repository <span class="also">repo</span></dt>
+    <dd>A project folder that git is tracking. The tracking data lives in a hidden
+      <code>.git</code> subfolder — delete that and it's just a normal folder again.</dd>
+
+    <dt>Commit</dt>
+    <dd>A saved snapshot of your files at one moment, with a message explaining why. Your
+      history is a chain of commits. Think "save point," not "save."</dd>
+
+    <dt>Staging area <span class="also">the index</span></dt>
+    <dd>A holding pen between your files and a commit. <code>git add</code> puts files in it;
+      <code>git commit</code> packages whatever's in it. This is what lets you make five
+      changes and commit only three, so your history reads as decisions rather than noise.</dd>
+
+    <dt>Tracked / untracked</dt>
+    <dd>Tracked = git is watching this file. Untracked = git can see it but ignores changes.
+      In <code>git status</code>, <code>??</code> = untracked, <code>A</code> = staged as new,
+      <code>M</code> = modified.</dd>
+
+    <dt><code>.gitignore</code></dt>
+    <dd>A file listing patterns git should never track. We ignore <code>data/</code> and
+      <code>__pycache__/</code> because they're generated from code — committing them creates
+      two sources of truth that can silently disagree.</dd>
+
+    <dt>Re-including a file inside an ignored folder</dt>
+    <dd>A rule that caught us: git never descends into an ignored <em>directory</em>, so
+      <code>outputs/</code> followed by <code>!outputs/figures/*.png</code> does nothing. You
+      have to un-ignore each level on the way down —
+      <code>outputs/*</code>, <code>!outputs/figures/</code>,
+      <code>outputs/figures/*</code>, <code>!outputs/figures/*.png</code>.</dd>
+
+    <dt>Branch</dt>
+    <dd>An independent line of commits. <code>main</code> is the default. Branches let you
+      work on something risky without touching the working version.</dd>
+
+    <dt>Remote <span class="also">origin</span></dt>
+    <dd>A nickname for a URL where a copy of the repo lives. <code>origin</code> is the
+      convention for "the main one." <code>git remote add origin &lt;url&gt;</code> only
+      records the address — it uploads nothing.</dd>
+
+    <dt>Push / pull / clone</dt>
+    <dd><strong>Push</strong> = send your commits up. <strong>Pull</strong> = fetch changes
+      down. <strong>Clone</strong> = download a whole repo for the first time.</dd>
+
+    <dt><code>gh</code></dt>
+    <dd>GitHub's official CLI. Does things over the website's API that plain
+      <code>git</code> can't — like creating a repository.</dd>
+  </dl>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">07</span> Terms — Python and packaging</h2>
+  <dl class="gloss">
+    <dt>Package</dt>
+    <dd>A folder of Python files meant to be imported as a unit. Ours is
+      <code>src/costproof/</code>, so <code>import costproof</code> works anywhere.</dd>
+
+    <dt>Module</dt>
+    <dd>A single <code>.py</code> file. <code>costproof/causal/did.py</code> is the
+      <code>did</code> module inside the <code>causal</code> subpackage.</dd>
+
+    <dt>Dependency</dt>
+    <dd>Another package yours needs to run. Ours are listed in <code>pyproject.toml</code>:
+      pandas, numpy, scikit-learn, statsmodels, duckdb, pyarrow, matplotlib, openpyxl.</dd>
+
+    <dt>Version pin</dt>
+    <dd>A constraint like <code>pandas&lt;2.4.0</code> that a dependency imposes on
+      <em>your</em> environment. Installing <code>ibm-watsonx-ai</code> silently downgraded
+      pandas on your Mac. Pins are transitive and mostly invisible until something behaves
+      differently on two machines.</dd>
+
+    <dt><code>pyproject.toml</code></dt>
+    <dd>The project's config file: name, version, dependencies, tool settings. The modern
+      standard, replacing the older <code>setup.py</code>.</dd>
+
+    <dt>Editable install <span class="also">pip install -e</span></dt>
+    <dd>Installs a link to your source folder rather than a copy. Edit a file and the change
+      takes effect immediately — no reinstall. Standard while developing.</dd>
+
+    <dt>Virtual environment <span class="also">venv, conda env</span></dt>
+    <dd>An isolated Python with its own packages, so project A needing pandas 1.x doesn't
+      break project B needing 2.x. Your <code>(base)</code> is Anaconda's default one.</dd>
+
+    <dt><code>__init__.py</code></dt>
+    <dd>A file that marks a folder as an importable package. Often empty — its presence is
+      the point.</dd>
+
+    <dt>Type hints and <code>Protocol</code></dt>
+    <dd>Annotations describing what a function takes and returns.
+      A <code>Protocol</code> defines an interface by shape rather than inheritance:
+      <code>Backend</code> says "anything with a <code>generate()</code> method qualifies,"
+      which is how watsonx and the deterministic fallback are interchangeable without either
+      knowing about the other.</dd>
+
+    <dt><code>python -m &lt;name&gt;</code></dt>
+    <dd>Run a package as a program. <code>python -m costproof.cli data</code> runs our CLI
+      with the argument <code>data</code>.</dd>
+  </dl>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">08</span> Terms — cloud computing</h2>
+  <dl class="gloss">
+    <dt>Cloud provider <span class="also">AWS, Azure, GCP</span></dt>
+    <dd>A company renting computers by the hour. Amazon Web Services, Microsoft Azure,
+      Google Cloud Platform. You never see the hardware; you rent capacity.</dd>
+
+    <dt>VM <span class="also">virtual machine, instance</span></dt>
+    <dd>A software-simulated computer running on the provider's hardware. One physical
+      server is carved into many VMs. <code>Standard_D8s_v5</code> in your data is an Azure
+      VM size: 8 virtual CPUs and a fixed amount of memory.</dd>
+
+    <dt>Instance type / SKU</dt>
+    <dd>The specific configuration you rented — CPU count, memory, whether it has a GPU.
+      <code>m6i.xlarge</code> is a general-purpose AWS VM;
+      <code>p4d.24xlarge</code> is a GPU machine at $32.77/hour.</dd>
+
+    <dt>Region and availability zone</dt>
+    <dd>Region = the geographic datacentre cluster (<code>eu-west-1</code> is Ireland).
+      Availability zone = an isolated datacentre within it. Prices differ by region.</dd>
+
+    <dt>Provisioning</dt>
+    <dd>Requesting resources. <strong>Over-provisioned</strong> = you rented more than you
+      use, and pay for all of it. That's the single most common form of cloud waste.</dd>
+
+    <dt>Rightsizing</dt>
+    <dd>Shrinking an over-provisioned resource to what it actually needs. One of the
+      optimisation actions in your dataset.</dd>
+
+    <dt>Idle / orphaned / zombie</dt>
+    <dd>Three flavours of waste. <strong>Idle</strong> = running but doing nothing.
+      <strong>Orphaned</strong> = the thing that used it is gone, but it still bills (a disk
+      whose VM was deleted). <strong>Zombie</strong> = a whole test environment nobody turned
+      off. None of them self-resolve; they bill until a human kills them.</dd>
+
+    <dt>Autoscaling</dt>
+    <dd>Automatically adding capacity under load and removing it after. Reduces waste, but
+      makes cost analysis harder because capacity is a moving target.</dd>
+
+    <dt>IaaS / PaaS / SaaS</dt>
+    <dd>Rent raw machines (Infrastructure), rent a managed platform (Platform), or rent
+      finished software (Software). Cloud waste statistics usually refer to IaaS and PaaS.</dd>
+  </dl>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">09</span> Terms — cloud finance (FinOps)</h2>
+  <dl class="gloss">
+    <dt>FinOps</dt>
+    <dd>The practice of managing cloud spend — the discipline that exists because cloud
+      turned a predictable capital purchase into a variable bill any engineer can increase at
+      3am without asking anyone.</dd>
+
+    <dt>FOCUS</dt>
+    <dd>FinOps Open Cost and Usage Specification. An open standard defining how billing data
+      should be structured, so AWS, Azure and GCP bills can be compared without custom
+      translation for each. Your data conforms to FOCUS 1.2 — which is why this project would
+      work against real exports unchanged.</dd>
+
+    <dt>The four cost columns</dt>
+    <dd><strong>ListCost</strong> = sticker price. <strong>ContractedCost</strong> = after
+      the company's negotiated discount. <strong>EffectiveCost</strong> = the true economic
+      cost for that day, spreading prepayments across the period they cover.
+      <strong>BilledCost</strong> = what actually hit the invoice that day.</dd>
+
+    <dt>Why EffectiveCost is the right one</dt>
+    <dd>If a company prepaid for capacity, those days show <code>BilledCost = $0</code>
+      because the money left months ago. Analyse <code>BilledCost</code> per resource and
+      prepaid resources look free. They aren't. <code>EffectiveCost</code> is what you use
+      for anything economic.</dd>
+
+    <dt>ChargeCategory</dt>
+    <dd>FOCUS's field distinguishing <code>Usage</code> rows from <code>Purchase</code>,
+      <code>Tax</code> and <code>Credit</code> rows. Mixing them is how the $2.58M phantom
+      saving happened: a discount calculation that is meaningful on a usage row is nonsense on
+      a purchase row.</dd>
+
+    <dt>Commitment discount <span class="also">Reserved Instance, Savings Plan</span></dt>
+    <dd>Promise to spend a certain amount for 1–3 years, get 25–35% off. The risk is
+      obvious: commit to capacity you stop needing and you pay for it anyway. That's
+      <strong>unused commitment</strong> — waste that never appears as a resource, so no
+      rightsizing exercise will ever find it. Yours: $165,406/year.</dd>
+
+    <dt>Break-even utilisation</dt>
+    <dd>For a commitment at discount <em>d</em>, break-even utilisation is
+      <strong>1 − <em>d</em></strong>. Below that, the unused portion costs more than the
+      discount saves. A 30% discount needs 70% utilisation just to be worth having.</dd>
+
+    <dt>Amortisation</dt>
+    <dd>Spreading a large upfront payment across the periods it covers, rather than dumping
+      it all in the month it was paid. Without it, a prepayment looks like a spend spike that
+      no optimisation caused.</dd>
+
+    <dt>Effective Savings Rate <span class="also">ESR</span></dt>
+    <dd>Total actual cost divided by what the same usage would have cost at list price. The
+      single number FinOps teams report upward, and it silently blends real optimisation with
+      negotiated discounts that took no engineering work at all.</dd>
+
+    <dt>Tagging</dt>
+    <dd>Labels attached to resources saying who owns them (<code>business_unit</code>,
+      <code>cost_centre</code>, <code>environment</code>). Cloud providers don't require
+      them, so real estates run 20–30% untagged — spend nobody can attribute. Yours is 10.6%,
+      or $1,435,302.</dd>
+
+    <dt>Showback / chargeback</dt>
+    <dd><strong>Showback</strong> = tell each team what they spent. <strong>Chargeback</strong>
+      = actually bill their budget. Chargeback changes behaviour; showback mostly doesn't.
+      Both require solving tagging first.</dd>
+
+    <dt>Unit economics</dt>
+    <dd>Cost per unit of business output — per transaction, per customer, per AI inference.
+      The denominator is the point: without it, a rising bill could be waste or could be
+      growth and you cannot tell which. Only <strong>49%</strong> of organisations measure it.</dd>
+
+    <dt>Anomaly detection</dt>
+    <dd>Automated alerting when spend deviates from expectation. Every FinOps tool does this.
+      None of them can tell you whether the fix you applied afterwards actually worked — which
+      is the gap this project fills.</dd>
+
+    <dt>TBM</dt>
+    <dd>Technology Business Management. A standard taxonomy for mapping IT spend to business
+      services. Authored by Apptio — the company IBM bought for $4.6B.</dd>
+  </dl>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">10</span> Terms — data warehousing and SQL</h2>
+  <dl class="gloss">
+    <dt>SQL <span class="also">Structured Query Language</span></dt>
+    <dd>The language for asking questions of tabular data. Roughly forty years old, still the
+      single most-requested data skill in job postings.</dd>
+
+    <dt>Table, row, column</dt>
+    <dd>A table is a grid. Each <strong>row</strong> is one record (one resource, one day,
+      one charge). Each <strong>column</strong> is one field (<code>EffectiveCost</code>,
+      <code>ResourceId</code>).</dd>
+
+    <dt>Schema</dt>
+    <dd>The definition of a table's columns and their types. FOCUS is a schema standard.</dd>
+
+    <dt>Parquet</dt>
+    <dd>A file format that stores data <strong>by column</strong> instead of by row. Sum one
+      column across 216,036 rows and it reads only that column, not the whole file — often
+      10–100× faster than CSV, and much smaller. Your billing feed is 11MB as Parquet.</dd>
+
+    <dt>Columnar storage</dt>
+    <dd>The idea behind Parquet. Analytics almost always touches a few columns across many
+      rows, so grouping data by column means less disk read per query.</dd>
+
+    <dt>DuckDB</dt>
+    <dd>A database that runs inside your Python process — no server to install or start. It
+      queries Parquet files directly, so you can write SQL against a file on disk with no
+      loading step. Increasingly the default for analytical work on a single machine.</dd>
+
+    <dt>The clauses you'll use constantly</dt>
+    <dd>
+      <code>SELECT</code> which columns ·
+      <code>FROM</code> which table ·
+      <code>WHERE</code> filter rows ·
+      <code>GROUP BY</code> one row per category ·
+      <code>HAVING</code> filter <em>after</em> grouping ·
+      <code>ORDER BY</code> sort ·
+      <code>LIMIT</code> cap the rows returned.
+    </dd>
+
+    <dt>Aggregate function</dt>
+    <dd>Collapses many rows into one number: <code>SUM()</code>, <code>COUNT()</code>,
+      <code>AVG()</code>, <code>MIN()</code>, <code>MAX()</code>. Almost always paired with
+      <code>GROUP BY</code>.</dd>
+
+    <dt>CTE <span class="also">common table expression, WITH clause</span></dt>
+    <dd>A named intermediate result you can reference later in the same query. Turns one
+      unreadable 120-line query into six named steps. The gold layer is built entirely this
+      way.</dd>
+
+    <dt>Window function <span class="also">OVER (PARTITION BY …)</span></dt>
+    <dd>Computes across a set of rows <em>without</em> collapsing them. A 28-day trailing
+      average per resource, with one output row per input row. This is what makes drift
+      features possible — you need each day's value <em>and</em> its own recent baseline on
+      the same row.</dd>
+
+    <dt><code>COALESCE</code> and NULL contagion</dt>
+    <dd><code>COALESCE(a, b)</code> returns the first non-null value. It matters because NULL
+      is contagious in SQL: any arithmetic touching a NULL returns NULL, and NULL rows drop
+      out of <code>GROUP BY</code> results silently. Turning missing tags into the literal
+      string <code>'unallocated'</code> makes the gap visible instead of invisible.</dd>
+
+    <dt>JOIN types</dt>
+    <dd><strong>INNER</strong> keeps only rows matching on both sides. <strong>LEFT</strong>
+      keeps everything from the left table, filling nulls where there's no match. Our gold
+      layer uses INNER deliberately so that units with no business driver are excluded rather
+      than given a fabricated denominator — and that exclusion is reported.</dd>
+
+    <dt>Bronze / silver / gold <span class="also">medallion architecture</span></dt>
+    <dd>A standard way to organise a warehouse in layers.
+      <strong>Bronze</strong> = raw source data, never edited.
+      <strong>Silver</strong> = cleaned, conformed, joined.
+      <strong>Gold</strong> = shaped for a specific business question.
+      Keeping bronze untouched means any mistake downstream is recoverable — you rebuild from
+      the raw layer rather than trying to reverse the damage.</dd>
+
+    <dt>Star schema, fact and dimension tables</dt>
+    <dd>A <strong>fact</strong> table holds the measurements (cost, quantity) at some grain —
+      ours is one row per resource per day. <strong>Dimension</strong> tables hold descriptive
+      attributes (which resource, which team, which date) and are joined onto the fact table.
+      Named for the shape of the diagram: one fact table in the middle, dimensions radiating
+      out. Ours are <code>dim_resource</code> and <code>fact_business_driver</code>.</dd>
+
+    <dt>Grain</dt>
+    <dd>What one row of a table represents. Getting this wrong is the most common warehouse
+      design error: join two tables at different grains and you silently multiply your
+      measures. State the grain in a comment at the top of every fact table.</dd>
+
+    <dt>ETL / ELT</dt>
+    <dd>Extract, Transform, Load — moving data from source to warehouse. ELT (transform after
+      loading) is now more common, because modern warehouses are fast enough to transform in
+      place. This project is ELT: raw Parquet lands first, SQL transforms it after.</dd>
+
+    <dt>Idempotence</dt>
+    <dd>Running the same job twice produces the same result as running it once. Our SQL
+      rebuilds each layer from scratch rather than appending, so a re-run can't double-count.
+      A pipeline that isn't idempotent is a pipeline you can't safely retry.</dd>
+  </dl>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">11</span> Terms — econometrics and causal inference</h2>
+
+  <p>This is the intellectual core of the project and the part your economics degree makes
+    you credible on. Everything here is implemented by hand in
+    <code>src/costproof/causal/</code>, not called from a library.</p>
+
+  <dl class="gloss">
+    <dt>Counterfactual</dt>
+    <dd>What would have happened if you hadn't acted. Never observable, always the thing you
+      actually need. The entire project exists to estimate it.</dd>
+
+    <dt>Potential outcomes <span class="also">Rubin causal model</span></dt>
+    <dd>Every unit has two potential outcomes: one if treated, one if not. You only ever
+      observe one of them. The "fundamental problem of causal inference" is that the causal
+      effect is a difference between two numbers, one of which is missing by construction.</dd>
+
+    <dt>ATT <span class="also">average treatment effect on the treated</span></dt>
+    <dd>The average effect among the units that actually got treated — not among everyone.
+      This is the right target here: you want to know whether the fixes you <em>did</em> apply
+      worked, not what would happen if you applied them everywhere.</dd>
+
+    <dt>Selection on the outcome <span class="also">endogenous treatment</span></dt>
+    <dd>Teams don't optimise resources at random. They optimise whatever just spiked. That
+      makes treatment assignment a function of the outcome you're about to measure, which is
+      exactly the condition under which before/after comparison breaks.</dd>
+
+    <dt>Mean reversion <span class="also">regression to the mean</span></dt>
+    <dd>An unusually high reading tends to be followed by a lower one, with no cause needed.
+      Combined with the point above: teams act on spikes, spikes subside on their own, and the
+      naive method hands the team credit for gravity.</dd>
+
+    <dt>Difference-in-differences <span class="also">DiD</span></dt>
+    <dd>Compare the change in the treated unit to the change in an untouched comparison group
+      over the same period. The second subtraction cancels anything that hit both — a price
+      change, a seasonal pattern, a company-wide traffic shift.</dd>
+
+    <dt>Two-way fixed effects <span class="also">TWFE</span></dt>
+    <dd>The regression implementation of DiD: absorb a fixed effect for each unit and each
+      time period, so identification comes only from within-unit variation over time. We
+      implement it by <strong>demeaning</strong> — subtracting each unit's mean and each
+      period's mean — which is algebraically identical to including the dummies and far
+      cheaper. Validated against statsmodels to 1×10⁻¹⁶.</dd>
+
+    <dt>Parallel trends</dt>
+    <dd>The assumption DiD rests on: absent the action, treated and control would have moved
+      together. Untestable directly — it's a claim about an unobserved counterfactual — but
+      checkable in the pre-treatment period, which is what an event study does.</dd>
+
+    <dt>Event study</dt>
+    <dd>Estimate a separate effect for each period relative to treatment. Pre-treatment
+      coefficients should be flat and near zero; if they trend, the parallel-trends assumption
+      is already failing before the treatment happens.</dd>
+
+    <dt>Synthetic control</dt>
+    <dd>Build an artificial comparison unit as a weighted average of untreated units, with
+      weights chosen so the synthetic unit tracks the treated one closely <em>before</em> the
+      intervention. Weights are constrained to be non-negative and sum to one, which prevents
+      extrapolation outside the range of the data.</dd>
+
+    <dt>Placebo test</dt>
+    <dd>Run the same method on units that were never treated. Any "effect" you find is noise,
+      and it tells you how big an effect has to be before it means anything. Our synthetic
+      control discards donors whose post-period fit is worse than twice their pre-period fit.</dd>
+
+    <dt>Cluster-robust standard errors</dt>
+    <dd>Corrects for the fact that observations within a unit are correlated over time —
+      ignoring this understates uncertainty badly, which is the Bertrand–Duflo–Mullainathan
+      result. But the correction is <strong>asymptotic in the number of clusters</strong>, and
+      with one treated unit there is no asymptotic regime. That is bug #4 above.</dd>
+
+    <dt>Permutation inference <span class="also">randomization inference</span></dt>
+    <dd>Instead of assuming a sampling distribution, construct one: reassign treatment at
+      random thousands of times, re-estimate each time, and see where the real estimate falls
+      in that distribution. It requires no asymptotics and no distributional assumption, which
+      is why it works with a single treated unit where the formula doesn't.</dd>
+
+    <dt>Coverage</dt>
+    <dd>How often a 95% confidence interval actually contains the truth. Should be 95%. The
+      industry method manages 27%; permutation inference gets 91%. This is the single
+      most diagnostic number in the whole project, because it measures whether your
+      <em>uncertainty</em> is honest, not just your estimate.</dd>
+
+    <dt>Bias, RMSE, MAE</dt>
+    <dd><strong>Bias</strong> = systematically off in one direction, averaged over many
+      estimates. <strong>RMSE</strong> = typical size of the error, penalising large misses
+      heavily. <strong>MAE</strong> = typical error, treating all misses equally. A method can
+      have near-zero bias and terrible RMSE if its errors are large and cancel out.</dd>
+
+    <dt>Size and power</dt>
+    <dd><strong>Size</strong> = how often you find an effect when there is none (false
+      positive rate; should equal your significance level, 5%). <strong>Power</strong> = how
+      often you find an effect when there is one. They trade off. A method with 100% power and
+      80% size is not powerful, it is indiscriminate.</dd>
+
+    <dt>Staggered adoption problems</dt>
+    <dd>When units are treated at different times, standard TWFE uses already-treated units as
+      controls for later-treated ones, which can produce an estimate with the wrong sign even
+      when every individual effect is positive. Goodman-Bacon decomposes the estimate to show
+      where it comes from; Callaway–Sant'Anna proposes an estimator that avoids the problem.
+      Worth knowing by name — this is live methodological debate.</dd>
+
+    <dt>Conley &amp; Taber (2011)</dt>
+    <dd>The canonical reference for inference with a single treated cluster, and the
+      justification for the permutation approach used here. Cite it if asked why you didn't
+      just cluster.</dd>
+
+    <dt>AR(1) process</dt>
+    <dd>A series where today's value depends on yesterday's plus noise, with persistence
+      parameter ρ. The simulator uses ρ = 0.90, meaning shocks decay slowly. Persistence is
+      what makes waste look like a level shift rather than a blip, and getting it wrong is
+      what caused bug #3.</dd>
+  </dl>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">12</span> Terms — machine learning</h2>
+  <dl class="gloss">
+    <dt>Classification vs. regression</dt>
+    <dd>Classification predicts a category (wasteful / not wasteful); regression predicts a
+      number. This project does both, in different places, for different reasons — the
+      classifier prioritises, the regression measures.</dd>
+
+    <dt>Gradient boosting</dt>
+    <dd>Fits many small decision trees in sequence, each one correcting the errors of the
+      ensemble so far. Strong on tabular data with mixed feature types, which is most of what
+      finance and operations produce.</dd>
+
+    <dt>Class imbalance</dt>
+    <dd>When one outcome is much rarer than the other. Predict "not wasteful" for everything
+      and you can be 95% accurate while being completely useless. Accuracy is the wrong metric
+      the moment classes are imbalanced.</dd>
+
+    <dt>Precision and recall</dt>
+    <dd><strong>Precision</strong> = of the things you flagged, how many were real.
+      <strong>Recall</strong> = of the real things, how many did you flag. An investigation
+      queue needs precision, because an analyst's time is the scarce resource; a safety recall
+      needs recall, because a miss is unacceptable.</dd>
+
+    <dt>Precision@k</dt>
+    <dd>Precision among the top <em>k</em> ranked items. The right metric when the output is a
+      worklist someone works down from the top. Ours is 100% at k = 10.</dd>
+
+    <dt>ROC AUC vs. PR AUC</dt>
+    <dd>ROC AUC measures ranking quality across all thresholds and is flattered by imbalance —
+      it counts true negatives, which are abundant and easy. Precision-recall AUC ignores true
+      negatives and has a baseline equal to the prevalence, so it is the honest one when
+      positives are rare.</dd>
+
+    <dt>Data leakage</dt>
+    <dd>Information from the test set reaching the model during training. The subtle version
+      here: splitting <em>rows</em> instead of <em>resources</em> puts the same machine on both
+      sides, the model memorises it, and the reported score is a measure of memory rather than
+      generalisation.</dd>
+
+    <dt>Grouped train/test split</dt>
+    <dd>The fix: split by entity, so no resource appears in both sets. The score then answers
+      the question you actually care about — will this work on a machine we've never seen.</dd>
+
+    <dt>Feature engineering</dt>
+    <dd>Turning raw columns into inputs a model can learn from. The judgement here is
+      economic, not technical: nine <em>relative</em> features (drift versus own baseline,
+      coefficient of variation, weekend ratio) rather than absolute dollars, so the model
+      learns waste patterns instead of the price list.</dd>
+
+    <dt>Coefficient of variation</dt>
+    <dd>Standard deviation divided by mean. A scale-free measure of variability, so a $10/day
+      resource and a $10,000/day resource are comparable. Idle resources have low CV — they
+      cost the same every day regardless of demand.</dd>
+
+    <dt>Feature importance</dt>
+    <dd>How much each input contributed to the model's predictions. Useful for explaining the
+      model to a non-technical stakeholder, and for catching leakage — an implausibly dominant
+      feature usually means it encodes the answer.</dd>
+
+    <dt>Prioritisation is not a finding</dt>
+    <dd>A model score ranks where to look. It does not establish that anything is wrong. The
+      report states this explicitly for every flagged resource, and the annualised figure is
+      described as the cost those resources <em>carry</em>, not a saving — because what is
+      actually recoverable is unknown until the fix is measured after the fact.</dd>
+  </dl>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">13</span> Terms — RAG, agents and MCP</h2>
+  <dl class="gloss">
+    <dt>RAG <span class="also">retrieval-augmented generation</span></dt>
+    <dd>Retrieve relevant passages from your own documents, then give them to a language model
+      as context. Grounds the answer in specific sources rather than the model's training data,
+      and makes citation possible.</dd>
+
+    <dt>Chunking</dt>
+    <dd>Splitting documents into retrievable pieces. We chunk on markdown headings so each
+      chunk is a semantically complete section with a citable name, rather than a fixed number
+      of characters that cuts mid-sentence.</dd>
+
+    <dt>TF-IDF</dt>
+    <dd>Term frequency × inverse document frequency. Weights a word by how often it appears
+      in this document and how rare it is across all documents, so common words contribute
+      little and distinctive terms contribute a lot.</dd>
+
+    <dt>n-grams, word and character</dt>
+    <dd>Word 1–2 grams capture phrases ("unused commitment"). Character 4–5 grams capture
+      morphological near-misses (<code>rightsizing</code> / <code>right-sizing</code>) that
+      word matching treats as unrelated. Using both is why retrieval hits 100% on
+      corpus-vocabulary questions.</dd>
+
+    <dt>Cosine similarity</dt>
+    <dd>The angle between two vectors, ignoring their length. Standard for comparing documents
+      of different sizes, because a long document shouldn't score higher just for being long.</dd>
+
+    <dt>Relevance floor</dt>
+    <dd>A minimum score below which nothing is returned. Without it the retriever always
+      returns its top three, however irrelevant, and the model dutifully cites them. Returning
+      nothing is a valid answer.</dd>
+
+    <dt>Recall@k</dt>
+    <dd>How often the correct document appears in the top <em>k</em> results. Ours: 85% at
+      k = 3 overall, 100% on corpus-vocabulary phrasing, 62% on paraphrases. Reporting the
+      breakdown rather than the average is what makes it a diagnostic instead of a
+      score.</dd>
+
+    <dt>Lexical vs. semantic retrieval</dt>
+    <dd>Lexical matches words; semantic (embedding-based) matches meaning. The 62%
+      paraphrase result is precisely the known weakness of lexical retrieval, and naming it as
+      such — rather than hiding the average — is the point of measuring it.</dd>
+
+    <dt>Grounding and hallucination</dt>
+    <dd>A grounded answer is traceable to a retrieved source. The system prompt here forbids
+      stating any figure not present verbatim in tool output, and the architecture backs that
+      up: the deterministic backend proves no figure came from the model in the first
+      place.</dd>
+
+    <dt>Agent</dt>
+    <dd>A system that chooses which tools to call, in what order, based on what it finds.
+      Distinct from a pipeline, where the order is fixed in advance.</dd>
+
+    <dt>Tool registry and schema</dt>
+    <dd>Each tool declares its name, purpose and parameters as a JSON schema. The schema is
+      the contract: it is what lets a model call a tool correctly without having seen its
+      source, and what lets you validate the call before it runs.</dd>
+
+    <dt>MCP <span class="also">Model Context Protocol</span></dt>
+    <dd>An open standard for exposing tools, resources and prompts to a model over a uniform
+      interface, so the same tool works in any MCP-aware client. The remaining build step is
+      wrapping this project's tool registry as an MCP server.</dd>
+
+    <dt>Governance gate</dt>
+    <dd>A rule that stops an agent from acting autonomously past a threshold. Ours: anything
+      over $1,000/year, or anything destructive, requires explicit human approval and is not
+      executed. Three of four findings were gated in the last run.</dd>
+
+    <dt>Audit record</dt>
+    <dd>A machine-readable log of what ran: run ID, backend, Python version, platform, every
+      tool call with arguments and timings, every source retrieved. This is what makes an
+      agent's output defensible in a finance context, and what most agent demos don't
+      have.</dd>
+
+    <dt>Graceful degradation</dt>
+    <dd>The system does something useful when a dependency is unavailable, instead of failing.
+      Here it is also an architectural proof — see step 11.</dd>
+
+    <dt>Greedy decoding</dt>
+    <dd>Always take the highest-probability next token instead of sampling. Makes output
+      reproducible, which matters when the output goes into an audit record.</dd>
+  </dl>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">14</span> Terms — the business case</h2>
+  <dl class="gloss">
+    <dt>NPV <span class="also">net present value</span></dt>
+    <dd>Future cash flows discounted back to today and summed. A dollar next year is worth
+      less than a dollar now, so a stream of benefits has to be discounted before it can be
+      compared to an upfront cost. Positive NPV = worth doing.</dd>
+
+    <dt>Discount rate</dt>
+    <dd>The rate used to shrink future cash flows — typically the company's cost of capital.
+      Ours is 12%. It is an assumption, it lives in a labelled blue input cell, and the
+      sensitivity table shows what happens when it moves.</dd>
+
+    <dt>IRR, and when it doesn't exist</dt>
+    <dd>The discount rate at which NPV equals zero. Undefined when the cash-flow series never
+      changes sign — which is our case, because the project is cash-positive in year one.
+      Reporting "n/a" with the reason is correct; forcing a number would be wrong.</dd>
+
+    <dt>Benefit-to-cost ratio</dt>
+    <dd>Present value of benefits divided by present value of costs. Ours is 6.27×. The right
+      substitute for IRR when IRR is undefined, and easier for a non-finance reader anyway.</dd>
+
+    <dt>Payback period</dt>
+    <dd>How long until cumulative cash flow turns positive. Same issue as IRR here — it's
+      immediate, so the metric carries no information.</dd>
+
+    <dt>Sensitivity analysis</dt>
+    <dd>Vary the key assumptions and show the range of outcomes. A single NPV is a point
+      estimate of something uncertain; the table is what makes it honest.</dd>
+
+    <dt>Blue inputs, black formulas</dt>
+    <dd>Universal financial-modelling convention: blue text = a hardcoded input you can
+      change, black = a calculated cell you shouldn't touch, green = a link to another sheet.
+      A finance reader uses colour to find the levers without reading a single formula.</dd>
+
+    <dt>What to exclude on purpose</dt>
+    <dd>Measuring more accurately does not by itself generate cash. The $115,746 of annual
+      misstatement reduction is displayed and deliberately kept out of the NPV. A model that
+      counts accounting accuracy as savings is a model a CFO stops trusting.</dd>
+  </dl>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">15</span> Every command you've run</h2>
+  <div class="scroller">
+    <table>
+      <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>cd ~/Projects/costproof</code></td><td>Move into the project folder</td></tr>
+        <tr><td><code>git config user.email "..."</code></td><td>Set the email stamped on your commits</td></tr>
+        <tr><td><code>git branch -M main</code></td><td>Rename the branch to <code>main</code></td></tr>
+        <tr><td><code>gh repo create ... --public</code></td><td>Create the repository on GitHub</td></tr>
+        <tr><td><code>git status</code></td><td>Show what's changed and what's staged</td></tr>
+        <tr><td><code>git status --short</code></td><td>Same, compact, with two-letter codes</td></tr>
+        <tr><td><code>git add -A</code></td><td>Stage all changes</td></tr>
+        <tr><td><code>git commit -m "..."</code></td><td>Package staged files into a snapshot</td></tr>
+        <tr><td><code>git remote add origin &lt;url&gt;</code></td><td>Record where GitHub is</td></tr>
+        <tr><td><code>git push -u origin main</code></td><td>Upload commits; remember the pairing</td></tr>
+        <tr><td><code>git log --oneline</code></td><td>List commits, one line each</td></tr>
+        <tr><td><code>rm -f .git/index.lock</code></td><td>Clear a stale git lock file</td></tr>
+        <tr><td><code>pip install -e ".[dev]"</code></td><td>Install the project in editable mode with dev extras</td></tr>
+        <tr><td><code>python -m costproof.cli data</code></td><td>Run the simulator, write data files</td></tr>
+        <tr><td><code>python -m costproof.cli study</code></td><td>Run all four estimators, score against truth</td></tr>
+        <tr><td><code>python -m costproof.cli check</code></td><td>Six-stage watsonx credential check</td></tr>
+        <tr><td><code>python -m costproof.cli watsonx</code></td><td>One live inference call against Granite</td></tr>
+        <tr><td><code>python -m costproof.cli review</code></td><td>Run the agent, write the report and audit record</td></tr>
+        <tr><td><code>python scripts/build_business_case.py</code></td><td>Generate the five-sheet Excel workbook</td></tr>
+        <tr><td><code>ls -lh data/bronze data/gold</code></td><td>List those files with readable sizes</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">16</span> What's left</h2>
+  <ol>
+    <li><strong>MCP server</strong> — wrap the existing tool registry as an MCP server. The
+      tools already declare JSON schemas, so this is an adapter, not new logic. It closes the
+      loop on the MCP: Advanced Topics certificate.</li>
+    <li><strong>R cross-validation</strong> — re-estimate a sample of the interventions in R
+      with <code>fixest</code> and <code>CausalImpact</code>. Two independent implementations
+      agreeing is a much stronger claim than one implementation asserting.</li>
+    <li><strong>watsonx association</strong> — blocked by what looks like a permission
+      restriction on the institutional account. The workaround is a personal IBM Cloud
+      account. The integration code is written and the credential checker will confirm it in
+      one command once the association exists.</li>
+    <li><strong>Finish TEA</strong> — the tariff-exposure-agent repository still has one
+      commit and unresolved TODOs. IBM's own advice was <em>finish what you started</em>, and
+      an abandoned repo next to a finished one undercuts the finished one.</li>
+  </ol>
+
+  <div class="note">
+    <p class="eyebrow">Housekeeping</p>
+    <p>Revoke the watsonx API key that was pasted into chat, in IBM Cloud → Manage → Access
+      (IAM) → API keys, and create a fresh one. A credential is safe in exactly two places:
+      your local <code>.env</code> file, and IBM's console. It has never been committed —
+      <code>.env</code> is in <code>.gitignore</code> and <code>git log --all -- .env</code>
+      returns nothing — but a key that has appeared in a chat log should be rotated
+      regardless.</p>
+  </div>
+</section>
+
+<footer>
+  <p><strong>Repository:</strong> github.com/colonel1223/costproof · local copy at
+    <code>~/Projects/costproof</code></p>
+  <p>Companion to the CostProof Field Guide, which covers how to present the project rather
+    than how it was made.</p>
+</footer>
+
+</div>
