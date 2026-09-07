@@ -3,6 +3,9 @@
     costproof study     regenerate every number and figure in the README
     costproof data      generate the estate and write it to data/
     costproof check     validate FOCUS conformance of a generated estate
+    costproof watsonx   verify watsonx credentials stage by stage
+    costproof review    run the governed cost review and write the report
+    costproof mcp       serve the tool registry over the Model Context Protocol
 """
 
 from __future__ import annotations
@@ -49,8 +52,8 @@ def cmd_data(args: argparse.Namespace) -> int:
 
 
 def cmd_study(args: argparse.Namespace) -> int:
-    from costproof.causal import panel as P
     from costproof.causal import did as D
+    from costproof.causal import panel as P
     from costproof.causal import validate as V
     from costproof.causal.synth import synthetic_control_detail
     from costproof.report import figures as F
@@ -171,9 +174,20 @@ def cmd_review(args: argparse.Namespace) -> int:
     print(f"  {len(audit.tool_calls)} tool calls logged")
     print(f"  ${total:,.0f} total annualised impact identified")
     print(f"  narrative backend: {audit.narrative_source}")
-    print(f"  report  -> reports/cost-review.md")
+    print("  report  -> reports/cost-review.md")
     print(f"  audit   -> outputs/audit/{audit.run_id}.json")
     return 0
+
+
+def cmd_mcp(args: argparse.Namespace) -> int:
+    """Serve TOOL_REGISTRY over MCP (stdio), or print what a client would see."""
+    try:
+        from costproof.agent import mcp_server
+    except ImportError:
+        print("The MCP SDK is not installed. Run:  pip install 'costproof[agent]'",
+              file=sys.stderr)
+        return 1
+    return mcp_server.main(["--self-test"] if args.self_test else [])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -196,6 +210,11 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("review", help="run the governed cost review"
                    ).set_defaults(func=cmd_review)
+
+    mcp = sub.add_parser("mcp", help="serve the tool registry over the Model Context Protocol")
+    mcp.add_argument("--self-test", action="store_true",
+                     help="print advertised tools, resources and prompts, then exit")
+    mcp.set_defaults(func=cmd_mcp)
 
     args = parser.parse_args(argv)
     return args.func(args)

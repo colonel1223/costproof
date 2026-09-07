@@ -178,11 +178,23 @@ src/costproof/
                published list prices; ground-truth billing generator
   causal/      panel construction, donor selection, DiD (two-way FE, hand-rolled),
                randomization inference, synthetic control, validation harness
+  ml/          waste classifier: relative features, resource-level hold-out,
+               precision@k against the threshold rule most tools ship with
+  agent/       tool registry with JSON schemas; TF-IDF retrieval over the runbooks;
+               governed review with audit records; watsonx backend with a
+               deterministic fallback; MCP server over the same registry
   report/      figures
+sql/
+  silver_billing.sql          conform the feed; make untagged spend explicit
+  gold_unit_economics.sql     cost per unit of business output, 28-day windows
+scripts/
+  build_business_case.py      the five-sheet CFO workbook (reports/*.xlsx)
 docs/
   00-problem.md          the business case, fully cited
   02-identification.md   the econometrics: estimand, assumptions, threats, references
-tests/                   24 tests, several of which encode bugs found during development
+  build-notes.html       running log: every step, every number, every bug and its lesson
+tests/                   32 tests; several encode bugs found during development, and
+                         eight speak MCP to the live server over stdio
 ```
 
 **The DiD estimator is implemented directly rather than called from a library** — the within
@@ -196,16 +208,74 @@ that silently reported a 0% untagged rate, and a SKU-scaling error that let one 
 
 ---
 
+## The agent, and what the model is not allowed to do
+
+Everything above is measurement. `src/costproof/agent/` is what turns it into something a
+finance team can run, and it is built on one rule: **the model narrates; it never
+calculates.** Every number in a report comes from a function in `tools.py`, each of which
+returns its value together with the method that produced it, its caveats, and its sources.
+The language model chooses which tool to call and rewrites the result into prose. It
+computes nothing.
+
+That rule is enforced architecturally rather than by prompt. There are two backends behind
+one interface — IBM watsonx (`ibm/granite-3-8b-instruct`, greedy decoding) and a
+deterministic template that needs no credentials at all — and **the deterministic backend
+produces every figure in the report**. Run the review with no API key and the numbers are
+identical. If they weren't, that would be evidence the model was doing arithmetic somewhere
+it shouldn't.
+
+Three other things the agent layer does:
+
+- **Retrieval.** Three internal documents — a remediation runbook, a measurement policy, a
+  pricing reference — chunked on headings and searched with TF-IDF over word and character
+  n-grams. Recall@3 is 85%: 100% when a question uses the corpus's vocabulary, 62% when
+  paraphrased. The breakdown is reported rather than the average, because the gap is the
+  known limit of lexical retrieval and hiding it would help nobody.
+- **Governance.** Any finding over $1,000/yr, anything irreversible, anything whose owner
+  cannot be established, and any savings estimate that failed its parallel-trends check is
+  gated for human approval and is not executed. Three of four findings in the last run were
+  gated. Every run writes a JSON audit record: backend, platform, every tool call with
+  arguments and timings, every source retrieved.
+- **MCP.** The same tool registry is served over the [Model Context
+  Protocol](https://modelcontextprotocol.io), so Claude Desktop or any other MCP client can
+  call CostProof's analytics directly. The server reads `TOOL_REGISTRY` at request time —
+  one definition of what the agent may do, not two that can drift. Every tool is annotated
+  read-only, every result carries its provenance and a machine-readable governance decision,
+  every call is appended to an audit log, and the knowledge base and validation scorecard
+  are exposed as resources. A protocol-level distinction is kept deliberately: a tool that
+  does not exist returns `isError: true`; a tool that ran and concluded "this estimate is
+  not causal" returns `isError: false` with `ok: false`, because a refused savings claim is
+  the system working, not a malfunction to retry.
+
+```bash
+python -m costproof.cli mcp --self-test     # what a client would see
+python -m costproof.cli mcp                 # serve over stdio
+```
+
+```json
+{"mcpServers": {"costproof": {"command": "python",
+                              "args": ["-m", "costproof.agent.mcp_server"]}}}
+```
+
+---
+
 ## Reproducing
 
 ```bash
-pip install -e ".[dev]"
-pytest                                    # 24 tests
+pip install -e ".[dev,agent,report]"
+pytest                                      # 32 tests
+python -m costproof.cli data                # generate the estate
+python -c "import duckdb; duckdb.sql(open('sql/silver_billing.sql').read())"
+python -c "import duckdb; duckdb.sql(open('sql/gold_unit_economics.sql').read())"
 python -m costproof.cli study               # regenerates every number above
+python -m costproof.cli review              # the governed cost review
+python scripts/build_business_case.py       # the CFO workbook
 ```
 
 Everything is deterministic given the seed in `SimConfig`. Data is regenerated rather than
-committed, so nothing in this README can drift from what the code produces.
+committed, so nothing in this README can drift from what the code produces. watsonx is
+optional: with no `.env`, the review runs on the deterministic backend and produces the same
+figures.
 
 ---
 
@@ -240,12 +310,15 @@ wrong. See `docs/02-identification.md §7`.
 - [x] Panel construction, growth-matched donor selection
 - [x] DiD (two-way FE + cluster-robust + randomization inference), synthetic control
 - [x] Validation harness: bias, RMSE, coverage, size, power, dollar misstatement
-- [ ] DuckDB medallion warehouse; allocation and unit economics (cost per transaction / per inference)
-- [ ] Waste detection and classification (benign growth vs. genuine waste)
-- [ ] MCP server exposing the analytics as agent-callable tools
-- [ ] RAG over pricing docs, the FOCUS spec, and tagging policy
-- [ ] Governed agent on watsonx with human approval gate and full audit trail
-- [ ] CFO-facing Excel business case: savings waterfall, programme NPV/IRR, sensitivity
+- [x] DuckDB medallion warehouse; allocation and unit economics
+- [x] Waste detection and classification (benign growth vs. genuine waste)
+- [x] RAG over the remediation runbook, measurement policy and pricing reference
+- [x] Governed agent with human approval gate and full audit trail; watsonx backend
+      with deterministic fallback
+- [x] MCP server over the same tool registry, with protocol-level tests
+- [x] CFO-facing Excel business case: value model, NPV, sensitivity, benefit-to-cost
+- [ ] Cross-validation of the causal estimates in R (`fixest`, `CausalImpact`)
+- [ ] Embedding-based retrieval, to close the 62% paraphrase gap
 
 ---
 

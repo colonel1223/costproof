@@ -39,3 +39,6 @@ htmlcov/
 .DS_Store
 .vscode/
 .idea/
+
+# Local working notes -- not part of the public repo
+.resume.md
