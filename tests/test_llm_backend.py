@@ -73,3 +73,36 @@ def test_credential_failure_is_not_mistaken_for_a_missing_model():
 def test_default_model_is_head_of_the_preference_list():
     assert llm.PREFERRED_MODELS[0] == llm.DEFAULT_MODEL
     assert "ibm/granite-3-8b-instruct" in llm.PREFERRED_MODELS  # kept as last resort
+
+
+def test_generate_uses_the_chat_endpoint_and_reads_the_documented_shape():
+    """Granite 4 is chat-tuned: the legacy completion endpoint returns an empty string
+    (the first live run) and is deprecated. `generate` must call `.chat()` with a
+    system + user message pair and read choices[0].message.content."""
+    calls = {}
+
+    class FakeModel:
+        def chat(self, messages, params=None, **_):
+            calls["messages"] = messages
+            calls["params"] = params
+            return {"choices": [{"message": {"role": "assistant", "content": "  connected  "}}]}
+
+    backend = object.__new__(llm.WatsonxBackend)   # skip __post_init__ (needs SDK + creds)
+    backend._model = FakeModel()
+    out = backend.generate("Reply with one word.", system="You are a test.", max_tokens=8)
+
+    assert out == "connected"
+    assert calls["messages"][0] == {"role": "system", "content": "You are a test."}
+    assert calls["messages"][1] == {"role": "user", "content": "Reply with one word."}
+    assert calls["params"]["temperature"] == 0        # deterministic reporting
+    assert calls["params"]["max_tokens"] == 8
+
+
+def test_generate_returns_empty_string_on_malformed_response():
+    class FakeModel:
+        def chat(self, messages, params=None, **_):
+            return {"choices": []}
+
+    backend = object.__new__(llm.WatsonxBackend)
+    backend._model = FakeModel()
+    assert backend.generate("x") == ""   # the guard, not an exception, handles this

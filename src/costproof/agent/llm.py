@@ -127,18 +127,12 @@ class WatsonxBackend:
         credentials = Credentials(url=url, api_key=api_key)
 
         def factory(model_id: str) -> ModelInference:
+            # No generation params here: those belong to the legacy completion
+            # endpoint. Chat parameters are passed per call in `generate`.
             return ModelInference(
                 model_id=model_id,
                 credentials=credentials,
                 project_id=project_id,
-                params={
-                    # Near-deterministic. This is a reporting system: the same question
-                    # on the same data should produce the same words, or the audit
-                    # record is not reproducible and the governance claim is hollow.
-                    "decoding_method": "greedy",
-                    "max_new_tokens": 700,
-                    "repetition_penalty": 1.05,
-                },
             )
 
         # The requested model first, then the preference list. The SDK validates the ID
@@ -148,12 +142,31 @@ class WatsonxBackend:
         self.model_id, self._model = resolve_model(factory, candidates)
         self.name = f"watsonx:{self.model_id}"
 
+    #: Chat parameters. temperature=0 with a fixed seed is the chat-endpoint equivalent
+    #: of greedy decoding: this is a reporting system, and the same question on the
+    #: same data should produce the same words or the audit record is not reproducible.
+    CHAT_PARAMS = {"temperature": 0, "seed": 7, "top_p": 1.0}
+
     def generate(self, prompt: str, system: str = "", max_tokens: int = 700) -> str:
-        full = f"{system}\n\n{prompt}" if system else prompt
-        response = self._model.generate_text(
-            prompt=full, params={"max_new_tokens": max_tokens, "decoding_method": "greedy"}
+        """Call the chat endpoint.
+
+        Current Granite models are chat-tuned. Called through the legacy completion
+        endpoint (`generate_text`) they emit end-of-sequence at once and return an
+        empty string -- which is exactly what the first live run produced. The
+        completion endpoint is also deprecated. Chat is the only correct path.
+        """
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        response = self._model.chat(
+            messages=messages, params={**self.CHAT_PARAMS, "max_tokens": max_tokens},
         )
-        return response.strip() if isinstance(response, str) else str(response).strip()
+        try:
+            content = response["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            return ""
+        return (content or "").strip()
 
 
 # =======================================================================================
@@ -237,5 +250,7 @@ Rules you must follow exactly:
    than inferring an answer.
 5. No preamble, no restating the question, no closing pleasantries. Lead with the
    finding.
+6. A summary containing any figure that is not present in the tool output -- including
+   a rounded, totalled or combined figure -- is rejected automatically and replaced.
 
 Write in plain professional English. Short sentences. No marketing language."""

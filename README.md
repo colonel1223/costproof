@@ -183,7 +183,8 @@ src/costproof/
                precision@k against the threshold rule most tools ship with
   agent/       tool registry with JSON schemas; TF-IDF retrieval over the runbooks;
                governed review with audit records; watsonx backend with a
-               deterministic fallback; MCP server over the same registry
+               deterministic fallback; grounding guard that rejects any narrative
+               figure absent from tool output; MCP server over the same registry
   report/      figures
   causal/crossval.py   exports every study panel; joins Python and R estimates
 R/
@@ -205,10 +206,11 @@ reports/
   r-crossvalidation.md        117 panels, Python vs R, every coefficient side by side
   costproof-business-case.xlsx
   costproof-finance-model.xlsx
-tests/                   45 tests; several encode bugs found during development, eight
-                         speak MCP to the live server over stdio, one runs R, five pin
-                         the model-fallback logic, and six check the finance model is
-                         formulas over data with no dangling references
+tests/                   54 tests; several encode bugs found during development, eight
+                         speak MCP to the live server over stdio, one runs R, seven pin
+                         the model-fallback and chat-endpoint logic, seven the narrative
+                         grounding guard, and six check the finance model is formulas over
+                         data with no dangling references
 ```
 
 **The DiD estimator is implemented directly rather than called from a library** — the within
@@ -235,13 +237,20 @@ returns its value together with the method that produced it, its caveats, and it
 The language model chooses which tool to call and rewrites the result into prose. It
 computes nothing.
 
-That rule is enforced architecturally rather than by prompt. There are two backends behind
-one interface — IBM watsonx (Granite, `ibm/granite-4-h-small`, greedy decoding, with an
-ordered fallback list because foundation models get withdrawn on a schedule) and a
-deterministic template that needs no credentials at all — and **the deterministic backend
-produces every figure in the report**. Run the review with no API key and the numbers are
-identical. If they weren't, that would be evidence the model was doing arithmetic somewhere
-it shouldn't.
+That rule is enforced architecturally rather than by prompt, in two layers. First, there are
+two backends behind one interface — IBM watsonx (Granite, `ibm/granite-4-h-small` over the
+chat endpoint at temperature 0, with an ordered fallback list because foundation models get
+withdrawn on a schedule) and a deterministic template that needs no credentials at all — and
+**the deterministic backend produces every figure in the report**. Run the review with no
+API key and the numbers are identical. Second, a **grounding guard** reads the model's
+narrative back: it extracts every figure the model wrote and looks for it in the tool output
+the model was shown. A figure that is not there — invented, rounded to "$1.3M", or a total
+the model added up itself — rejects the whole narrative; the deterministic backend writes
+the section instead, and the audit record keeps the rejected text and the reason. An empty
+narrative is rejected the same way. That last case is not hypothetical: the first live
+watsonx run called a chat-tuned model through the deprecated completion endpoint, got zero
+characters back, and the report shipped with a header crediting the model for a section
+that did not exist. The guard is what makes that impossible now.
 
 Three other things the agent layer does:
 
@@ -326,7 +335,7 @@ $150/hr, in year 0) and a 50% year-1 ramp, because the first draft without them 
 
 ```bash
 pip install -e ".[dev,agent,report]"
-pytest                                      # 45 tests, zero warnings (R test skips if R is absent)
+pytest                                      # 54 tests, zero warnings (R test skips if R is absent)
 python -m costproof.cli data                # generate the estate
 python -m costproof.cli warehouse           # bronze -> silver -> gold (the SQL in sql/)
 python -m costproof.cli study               # regenerates every number above
