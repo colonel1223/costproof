@@ -192,7 +192,10 @@ sql/
   silver_billing.sql          conform the feed; make untagged spend explicit
   gold_unit_economics.sql     cost per unit of business output, 28-day windows
 scripts/
-  build_business_case.py      the five-sheet CFO workbook (reports/*.xlsx)
+  build_business_case.py      should you buy the measurement layer? 5 sheets, NPV of decision quality
+  build_finance_model.py      what did the programme deliver? 11-sheet FP&A workbook: event
+                              register, attribution, budget vs actual, forecast, ROI,
+                              scenarios, sensitivity, KPI dashboard -- 2,400 formulas
 docs/
   00-problem.md          the business case, fully cited
   02-identification.md   the econometrics: estimand, assumptions, threats, references
@@ -201,9 +204,11 @@ reports/
   cost-review.md              the governed review the agent produced
   r-crossvalidation.md        117 panels, Python vs R, every coefficient side by side
   costproof-business-case.xlsx
-tests/                   39 tests; several encode bugs found during development, eight
-                         speak MCP to the live server over stdio, one runs R, and five
-                         pin the model-fallback logic against a changing catalogue
+  costproof-finance-model.xlsx
+tests/                   45 tests; several encode bugs found during development, eight
+                         speak MCP to the live server over stdio, one runs R, five pin
+                         the model-fallback logic, and six check the finance model is
+                         formulas over data with no dangling references
 ```
 
 **The DiD estimator is implemented directly rather than called from a library** — the within
@@ -276,16 +281,58 @@ python -m costproof.cli mcp                 # serve over stdio
 
 ---
 
+## The finance layer
+
+Two Excel workbooks, generated from the pipeline's own outputs, answering two different
+questions. Every figure in both is a formula off a labelled assumption cell; blue is an input,
+black is a formula, green is a link. Both recalculate with zero errors.
+
+**`costproof-business-case.xlsx` — should an organisation buy the measurement layer?** Its NPV
+counts only decision quality: the engineering effort no longer wasted on scaling fixes that
+did nothing. Five-year NPV **$557,508**, benefit-to-cost **6.27×**. The $115,746/yr of
+reported-savings accuracy is shown and deliberately *excluded*: reporting a number more
+accurately does not create cash, and a business case that books accounting accuracy as savings
+is making the error this project exists to prevent.
+
+**`costproof-finance-model.xlsx` — what did the optimisation programme deliver, measured
+properly, and what is it worth?** Eleven sheets: an event register of all 117 interventions;
+per-event attribution showing the before/after figure, the identified estimate, its confidence
+interval, and whether it passed the parallel-trends gate; a run-rate budget against actuals by
+business unit; a twelve-month forecast by two methods; programme ROI; Base/Bull/Bear; two
+sensitivity grids; a KPI dashboard. 2,400 formulas.
+
+| | |
+|---|---|
+| Before/after would report | $1,693,741 / yr |
+| Identified, all 117 events | $1,809,487 / yr |
+| **Credited — identified, parallel-trends gate** | **$1,872,634 / yr** |
+| Programme NPV, 5 years, Base | $2,833,109 |
+| Benefit-to-cost · ROI · IRR · payback | 2.86× · 186% · 234% · 6.5 months |
+| Bear case NPV | $421,595 |
+
+The gate produces the finding worth remembering: crediting **all** 117 estimates gives a *lower*
+total than crediting only the 103 that pass parallel trends, because the 14 that fail net to
+−$63K. The gate is not merely conservative; it removes noise. Two switches on the Assumptions
+sheet — attribution policy and active scenario — drive every downstream number, and a test
+confirms that no sheet outside the raw data contains a numeric literal.
+
+Costs include the engineering to *execute* 117 interventions (16 hours each at a loaded
+$150/hr, in year 0) and a 50% year-1 ramp, because the first draft without them produced a
+0.4-month payback and a 3,067% IRR — numbers no finance reviewer would accept, and correctly so.
+
+---
+
 ## Reproducing
 
 ```bash
 pip install -e ".[dev,agent,report]"
-pytest                                      # 39 tests, zero warnings (R test skips if R is absent)
+pytest                                      # 45 tests, zero warnings (R test skips if R is absent)
 python -m costproof.cli data                # generate the estate
 python -m costproof.cli warehouse           # bronze -> silver -> gold (the SQL in sql/)
 python -m costproof.cli study               # regenerates every number above
 python -m costproof.cli review              # the governed cost review
 python scripts/build_business_case.py       # the CFO workbook
+python scripts/build_finance_model.py       # the FP&A workbook (recalculate in Excel on open)
 python -m costproof.cli crossval            # re-estimate every panel in R; needs
                                             #   install.packages(c("plm","sandwich","data.table"))
 ```
@@ -335,6 +382,8 @@ wrong. See `docs/02-identification.md §7`.
       with deterministic fallback
 - [x] MCP server over the same tool registry, with protocol-level tests
 - [x] CFO-facing Excel business case: value model, NPV, sensitivity, benefit-to-cost
+- [x] FP&A finance model: event register, gated attribution, budget vs actual, forecast,
+      ROI/IRR/payback, Base/Bull/Bear, sensitivity grids, KPI dashboard
 - [x] Cross-validation of the causal estimates in R (`plm`, `sandwich`): 117/117 to 1e-13
 - [ ] Embedding-based retrieval, to close the 62% paraphrase gap
 
