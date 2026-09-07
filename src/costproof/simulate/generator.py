@@ -751,6 +751,11 @@ def _to_billing(rng: np.random.Generator, cfg: SimConfig, log_q: np.ndarray,
 
     usage = pd.concat(blocks, ignore_index=True)
     purchases = _commitment_purchase_rows(cfg, usage, dates)
+    # Skip the concat entirely when there are no commitment purchases. pandas
+    # deprecated concatenating empty or all-NA frames because the resulting
+    # dtypes are ambiguous, and the behaviour will change in a future version.
+    if purchases.empty:
+        return usage
     return pd.concat([usage, purchases], ignore_index=True)
 
 
