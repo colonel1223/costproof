@@ -147,6 +147,35 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_watsonx(args: argparse.Namespace) -> int:
+    """Verify watsonx credentials stage by stage."""
+    from costproof.agent import check
+    return 0 if check.run(args.env)["ok"] else 1
+
+
+def cmd_review(args: argparse.Namespace) -> int:
+    """Run the governed cost review and write the report."""
+    from costproof.agent.review import CostReview, render_markdown
+
+    review = CostReview()
+    audit = review.run()
+    reports = ROOT / "reports"
+    reports.mkdir(parents=True, exist_ok=True)
+    (reports / "cost-review.md").write_text(render_markdown(audit))
+    audit.write(ROOT / "outputs" / "audit" / f"{audit.run_id}.json")
+
+    gated = sum(1 for f in audit.findings if f["requires_approval"])
+    total = sum(f["annualised_impact_usd"] or 0 for f in audit.findings)
+    _banner("REVIEW COMPLETE")
+    print(f"  {len(audit.findings)} findings, {gated} requiring human approval")
+    print(f"  {len(audit.tool_calls)} tool calls logged")
+    print(f"  ${total:,.0f} total annualised impact identified")
+    print(f"  narrative backend: {audit.narrative_source}")
+    print(f"  report  -> reports/cost-review.md")
+    print(f"  audit   -> outputs/audit/{audit.run_id}.json")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="costproof",
@@ -160,6 +189,13 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("study", help="run the full validation study and regenerate figures"
                    ).set_defaults(func=cmd_study)
     sub.add_parser("check", help="validate FOCUS conformance").set_defaults(func=cmd_check)
+
+    wx = sub.add_parser("watsonx", help="verify watsonx credentials stage by stage")
+    wx.add_argument("--env", default=".env")
+    wx.set_defaults(func=cmd_watsonx)
+
+    sub.add_parser("review", help="run the governed cost review"
+                   ).set_defaults(func=cmd_review)
 
     args = parser.parse_args(argv)
     return args.func(args)
