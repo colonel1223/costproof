@@ -1,409 +1,257 @@
 # CostProof
 
-**The counterfactual layer for cloud and AI spend.**
-Every FinOps tool on the market reports what you *spent*. None can prove what you *saved*.
+Measures whether cloud cost optimisations actually saved money.
 
+Cloud cost tools report what was spent. When a team fixes something and the bill goes down,
+the standard way to credit the fix is before/after: spend was $10K, now it's $7K, we saved
+$3K. That number is usually wrong. Teams don't fix things at random; they fix whatever just
+spiked, and spikes revert on their own. Before/after credits the team for the reversion.
 
----
+CostProof treats each optimisation as a treatment and estimates its effect against a control
+group of untouched resources, using difference-in-differences with permutation inference. It
+runs on a simulated billing estate where the true effect of every intervention is known, so it
+can report how accurate its own estimates are. The estate conforms to FOCUS 1.2, the billing
+schema AWS, Azure and GCP publish, so the same code runs on a real export.
 
-## The 30-second version
+## Quick start
 
-In 2026, cloud waste rose to **29% of all spend** — the first increase in five years — while
-**63% of organisations now run a dedicated FinOps team**. Those two facts do not sit
-comfortably together. Either the teams are not working, or nobody can measure whether they
-are.
+```bash
+pip install -e ".[dev,agent,report]"
+python -m costproof.cli data          # generate the estate (216,036 rows, ~5s)
+python -m costproof.cli warehouse     # bronze -> silver -> gold
+python -m costproof.cli study         # estimate 117 interventions four ways, score vs truth
+python -m costproof.cli review        # the governed cost review -> reports/cost-review.md
+pytest                                # 54 tests
+```
 
-The FinOps Foundation's 2026 survey contains a practitioner explaining the problem in their
-own words:
+Everything is deterministic given the seed in `SimConfig`. Data is regenerated, not committed.
+watsonx is optional: with no `.env` the review runs on a deterministic backend and produces the
+same figures.
 
-> **"Once you fix it, it's gone… how do we give developers credit for shift-left activities?"**
+## Results
 
-That is an entire industry stating an econometric problem in plain English without
-recognising it as one. They intervened, the cost went away, and they cannot observe what
-the cost *would have been* had they not intervened. The quantity they want is a
-**counterfactual** — unobservable by construction.
-
-This is the fundamental problem of causal inference, described by a cloud engineer.
-
-CostProof is the missing layer. It ingests FOCUS-standard billing data, detects waste, and
-then **proves what each remediation was actually worth** using difference-in-differences and
-synthetic control — and, because it runs on a simulator with known ground truth, it reports
-**how accurate its own estimates are**.
-
----
-
-## Headline result
-
-Across **117 interventions** on a simulated **$8.9M/year** cloud estate, scored against the
-known true effect of every one:
+117 interventions on a simulated cloud estate of roughly $9M a year, 30 of them with a true
+effect of exactly zero (actions taken on resources that had merely spiked). Each estimator is
+scored against the known effect.
 
 | Method | Bias | RMSE | 95% coverage | False positives on null interventions | Power |
 |---|---:|---:|---:|---:|---:|
-| Naive before/after *(the industry standard)* | 0.098 | 0.238 | 27% | **80%** | 100% |
-| DiD, cluster-robust SEs | 0.066 | 0.199 | 23% | **83%** | 100% |
-| **DiD, randomization inference** | **0.066** | **0.199** | **91%** | **13%** | 91% |
-| Synthetic control | 0.083 | 0.244 | 84% | **0%** | 48% |
+| Naive before/after | 0.098 | 0.238 | 27% | 80% | 100% |
+| DiD, cluster-robust SEs | 0.066 | 0.199 | 23% | 83% | 100% |
+| DiD, permutation inference | 0.066 | 0.199 | 91% | 13% | 91% |
+| Synthetic control | 0.083 | 0.244 | 84% | 0% | 48% |
 
-*Bias and RMSE in log points. "Null interventions" are 30 actions with a true effect of
-**exactly zero**, applied to resources that had merely spiked.*
+Bias and RMSE are in log points.
 
-Three things to take from this table.
+Before/after reports a significant saving on 80% of the interventions that did nothing. Rows
+two and three have the same point estimate; only the standard error differs. Cluster-robust
+standard errors are asymptotic in the number of treated clusters, and there is one treated
+resource per panel, so the intervals are far too narrow. Building the null distribution by
+permutation instead takes coverage from 23% to 91%.
 
-**1. Before/after reports a statistically significant saving on 80% of interventions that
-did nothing at all.** Not 5%. Eighty. Those are actions taken on resources that happened to
-spike, followed by spend reverting on its own — and the estimator credits the team for it.
-This is the number that should worry a CFO.
+The parallel-trends check does its job. Of the 117 estimates, 103 pass it; those have 95.1%
+coverage and RMSE 0.151. The 14 that fail have 64.3% coverage and RMSE 0.402.
 
-**2. Rows 2 and 3 are the same point estimate.** Only the inference differs. Cluster-robust
-standard errors are consistent as the number of *treated* clusters grows, and here there is
-exactly one treated resource — so the intervals are far too narrow and cover the truth 23%
-of the time. Switching to randomization inference takes coverage to 91% and cuts false
-positives from 83% to 13%. Nothing about the economics changed; only the honesty of the
-uncertainty did.
-
-**3. The diagnostic works.** Splitting the identified estimates by whether they pass the
-pre-trend test:
-
-| | n | Bias | RMSE | 95% coverage |
-|---|---:|---:|---:|---:|
-| Passes parallel-trends test | 103 | 0.032 | **0.151** | **95.1%** |
-| Fails parallel-trends test | 14 | 0.310 | 0.402 | 64.3% |
-
-Estimates that pass have **essentially nominal coverage and less than half the error**. The
-test correctly identifies which numbers to trust — demonstrated against ground truth rather
-than asserted. This is what makes the system safe to put in front of finance: it knows when
-to refuse to answer.
-
-**In dollars.** On a portfolio whose true annualised saving is **$2,020,441**, the industry's
-before/after method misstates the programme by **$326,700 (16%)**. The identified estimator
-misstates it by **$210,954 (10%)** — and, unlike the naive method, tells you honestly how
-uncertain it is.
+In dollars, against $2,020,441 of true annual savings, before/after misstates the total by
+$326,700 net. The gross misattribution, summing absolute errors per intervention, is $450,968:
+the aggregate looks close because errors cancel.
 
 ![Estimator scorecard](outputs/figures/scorecard.png)
 
----
+The hand-rolled DiD estimator is checked against R's `plm` on all 117 panels. Largest
+disagreement 1.2e-13; clustered-SE ratio 1.00000000. See `reports/r-crossvalidation.md`.
 
-## Why this is IBM's problem specifically
+## Why this problem
 
-IBM is the largest consolidator in this market:
-
-- **$4.6B for Apptio** (2023) — Cloudability, ApptioOne — bought explicitly to own cloud
-  financial management
-- **Turbonomic** — automated resource optimisation. It *takes the actions* whose value
-  nobody can currently prove.
-- **Kubecost** — Kubernetes cost allocation
-- **TBM** — the taxonomy Apptio authored and IBM now stewards
-- **watsonx / watsonx.governance** — in a market where *"AI cost management"* is the **#1
-  skill gap** and *"FinOps for AI"* the **#1 forward-looking priority**
-
-So IBM sells the tools that **take** optimisation actions and the tools that **report**
-spend, and owns nothing that **substantiates the actions**. A Turbonomic customer who
-automates a thousand rightsizing actions ends the quarter with a thousand unverified savings
-claims.
-
-> **The portfolio manufactures savings claims at scale and cannot substantiate any of them.
-> This is the substantiation layer.**
-
----
+IBM paid $4.6B for Apptio and owns Turbonomic and Kubecost: tools that take optimisation
+actions and tools that report spend. Nothing in that stack substantiates the actions. The
+FinOps Foundation's 2026 survey reports cloud waste at 29% of spend, rising, while 63% of
+organisations now run a FinOps team, and quotes a practitioner: "Once you fix it, it's gone,
+how do we give developers credit?" That is a question about an unobservable counterfactual.
 
 ## How it works
 
 ```
-FOCUS 1.2 billing feed ──► panel construction ──► donor selection ──► estimation ──► scoring
-   (industry standard)      (resource × day)     (match on growth)    (4 methods)   (vs truth)
+FOCUS billing feed -> bronze/silver/gold -> panel per intervention -> donor selection
+                   -> 4 estimators -> parallel-trends gate -> score vs truth
+                   -> agent + grounding guard -> report, MCP, Excel
 ```
 
-**Data foundation.** The simulator emits billing rows conforming to the **FinOps FOCUS 1.2**
-specification — the open standard AWS, Azure and GCP all publish against. Anything CostProof
-ingests works on real exports unchanged. The generator models daily demand as
+**Simulator.** Daily demand per resource follows
 
 ```
 log q_it = log(base_i) + trend_i·t + weekly_i(t) + annual_i(t) + u_it + waste_it + τ_i·1[t ≥ T₀]
 ```
 
-with `u_it = ρ·u_i,t-1 + ε_it` an AR(1) transitory shock. It reproduces enterprise-agreement
-discounts, commitment amortisation (`EffectiveCost` vs `BilledCost`), unused commitment,
-heavy-tailed resource scale, and a **10.6% untagged spend** rate.
+with `u_it = ρ·u_i,t-1 + ε_it`, ρ = 0.90. It reproduces negotiated discounts, commitment
+amortisation (`EffectiveCost` vs `BilledCost`), unused commitment, heavy-tailed resource
+scale and a 10.6% untagged rate. Interventions are triggered when a resource breaches a
+120-day rolling baseline, with a 95 to 150 day detection lag. That is the point: treatment is
+assigned the way real teams assign it, so the bias before/after suffers from is actually in the
+data. If treatment were random there would be nothing to fix.
 
-**Treatment is assigned endogenously.** Resources are optimised *because they spiked* — which
-is how real teams behave; you rightsize whatever showed up on the anomaly report. That is
-selection on a high draw of a mean-reverting series, so spend falls afterward whether or not
-the fix did anything. Reproducing that faithfully is what makes the whole exercise
-meaningful: if treatment were random, before/after would be unbiased and there would be no
-problem to solve.
+**Estimation.** For each intervention, donors are untreated resources matched on pre-period
+growth, not level. Four estimators run on the same panel. The naive one is computed so every
+report can show the gap between it and the identified estimate.
 
-**Estimation** runs four methods per intervention. The naive estimator is computed *not as an
-answer* but so every report can show the gap between it and an identified estimate. That gap
-is the dollar value of doing the econometrics correctly.
-
-**Diagnostics.** Event-study plots test parallel trends before any effect is believed:
+**Diagnostics.** An event study checks that pre-treatment coefficients sit on zero before any
+effect is believed.
 
 ![Event study](outputs/figures/event_study.png)
 
-Pre-treatment coefficients sit on zero; the effect ramps in over the roll-out window, exactly
-as an optimisation actually deploys. Synthetic control gives the same picture unit by unit:
-
-![Synthetic control](outputs/figures/synthetic_control.png)
-
----
-
-## Two things I got wrong, and what fixed them
-
-Both are in the git history, and both are more interesting than the result.
-
-**The estimator was fine; the analysis window was wrong.** The first full run gave DiD
-coverage of **7%** and barely beat naive. My instinct was to distrust the estimator. The
-actual cause: waste was being remediated 20–75 days after it started, but the analysis
-pre-window reached back **84 days** — so the "counterfactual" period was a mixture of
-*waste running* and *no waste yet*, and every method understated the effect. Lengthening the
-detection lag past the pre-window took DiD RMSE from 0.60 to 0.199. The lesson I actually
-care about: when every method fails together, suspect the data specification, not the
-methods.
-
-**A broken variance estimate corrupted the test built on top of it.** The parallel-trends
-test initially rejected for **98.3% of interventions**, including designs that visibly
-satisfied it. The test was a Wald statistic built on the same cluster-robust standard errors
-that are invalid with one treated unit — each t-statistic inflated, so the Wald statistic
-inflated by roughly the square. Rebuilding the test on randomization inference took the pass
-rate to **88%**, and the passing set turned out to have 95.1% coverage. A diagnostic
-inherits every weakness of the variance estimate it is built on.
-
----
-
-## What is in here
+## What's in the repository
 
 ```
 src/costproof/
-  simulate/    FOCUS 1.2 schema + conformance validation; price book anchored to
-               published list prices; ground-truth billing generator
-  warehouse/   runs the SQL layers in order; idempotent by construction
-  causal/      panel construction, donor selection, DiD (two-way FE, hand-rolled),
-               randomization inference, synthetic control, validation harness
-  ml/          waste classifier: relative features, resource-level hold-out,
-               precision@k against the threshold rule most tools ship with
-  agent/       tool registry with JSON schemas; TF-IDF retrieval over the runbooks;
-               governed review with audit records; watsonx backend with a
-               deterministic fallback; grounding guard that rejects any narrative
-               figure absent from tool output; MCP server over the same registry
+  simulate/    FOCUS 1.2 schema and validation; price book at published list prices; generator
+  warehouse/   runs the SQL layers in order
+  causal/      panel construction, donor selection, DiD (hand-rolled), permutation inference,
+               synthetic control, validation harness, R cross-validation export
+  ml/          waste classifier: relative features, resource-level hold-out, precision@k
+  agent/       tool registry, TF-IDF retrieval over three runbooks, governed review with
+               audit records, watsonx backend with deterministic fallback, narrative
+               grounding guard, MCP server
   report/      figures
-  causal/crossval.py   exports every study panel; joins Python and R estimates
-R/
-  crossvalidate.R      plm within estimator + lm dummies + sandwich clustered SE
-sql/
-  silver_billing.sql          conform the feed; make untagged spend explicit
-  gold_unit_economics.sql     cost per unit of business output, 28-day windows
-scripts/
-  build_business_case.py      should you buy the measurement layer? 5 sheets, NPV of decision quality
-  build_finance_model.py      what did the programme deliver? 11-sheet FP&A workbook: event
-                              register, attribution, budget vs actual, forecast, ROI,
-                              scenarios, sensitivity, KPI dashboard -- 2,400 formulas
-docs/
-  00-problem.md          the business case, fully cited
-  02-identification.md   the econometrics: estimand, assumptions, threats, references
-  build-notes.html       running log: every step, every number, every bug and its lesson
-reports/
-  cost-review.md              the governed review the agent produced
-  r-crossvalidation.md        117 panels, Python vs R, every coefficient side by side
-  costproof-business-case.xlsx
-  costproof-finance-model.xlsx
-tests/                   54 tests; several encode bugs found during development, eight
-                         speak MCP to the live server over stdio, one runs R, seven pin
-                         the model-fallback and chat-endpoint logic, seven the narrative
-                         grounding guard, and six check the finance model is formulas over
-                         data with no dangling references
+sql/           silver_billing.sql, gold_unit_economics.sql
+R/             crossvalidate.R (plm within estimator, lm with dummies, sandwich clustered SE)
+scripts/       build_business_case.py, build_finance_model.py
+reports/       cost-review.md, r-crossvalidation.md, two .xlsx workbooks
+docs/          00-problem.md, 02-identification.md, build-notes.html
+tests/         54 tests
 ```
 
-**The DiD estimator is implemented directly rather than called from a library** — the within
+The DiD estimator is implemented directly rather than called from a library: the within
 transformation and the cluster-robust sandwich are written out, because that is where applied
-DiD most often goes wrong. It is validated two ways. Against `statsmodels` in Python it agrees
-to ~1e-16. Against **R** — `plm::plm` for the within estimator, a brute-force `lm()` with
-explicit unit and day dummies as a Frisch–Waugh–Lovell check, and `sandwich::vcovCL` for the
-clustered standard error — it agrees on **all 117 study panels to 1.3e-13**, with a
-standard-error ratio of exactly 1.00000000. R shares no code with the Python. If the two ever
-disagreed, the disagreement would be the finding. See `reports/r-crossvalidation.md`.
+DiD tends to go wrong. It agrees with statsmodels to about 1e-16 and with R to 1e-13.
 
-`tests/test_simulate.py` includes regression tests for real bugs: a `None`-vs-`NaN` coercion
-that silently reported a 0% untagged rate, and a SKU-scaling error that let one GPU SKU take
-63% of estate spend.
+## The agent
 
----
+`python -m costproof.cli review` runs a cost review through a small agent. It calls tools from
+a registry (`agent/tools.py`), each of which returns a value together with the method used, its
+caveats and its sources. Findings over $1,000 a year, irreversible actions, spend with no
+identifiable owner, and any estimate that failed its parallel-trends check are gated for human
+approval and not executed. Every run writes a JSON audit record with each tool call, its
+arguments and timing, and every source retrieved.
 
-## The agent, and what the model is not allowed to do
+The language model only writes the narrative at the end. It never computes a number, and that
+is enforced two ways. The deterministic backend can produce the whole report without a model,
+and the figures are identical. And a grounding guard (`agent/guard.py`) reads the model's
+narrative back, extracts every figure, and checks it against the tool output the model was
+shown. Display precision is allowed ($970,158 for 970158.37, 10.6% for 0.106); rounding to
+$1.3M or a total the model added up itself is not. An ungrounded or empty narrative is
+rejected, the deterministic backend writes the section instead, and the rejected text is kept
+in the audit record.
 
-Everything above is measurement. `src/costproof/agent/` is what turns it into something a
-finance team can run, and it is built on one rule: **the model narrates; it never
-calculates.** Every number in a report comes from a function in `tools.py`, each of which
-returns its value together with the method that produced it, its caveats, and its sources.
-The language model chooses which tool to call and rewrites the result into prose. It
-computes nothing.
+The guard exists because the first live run on watsonx returned an empty narrative. Granite 4 is
+a chat model and the code was calling the deprecated completion endpoint, so it emitted
+end-of-sequence immediately. The report rendered without the section while its header still
+credited the model.
 
-That rule is enforced architecturally rather than by prompt, in two layers. First, there are
-two backends behind one interface — IBM watsonx (Granite, `ibm/granite-4-h-small` over the
-chat endpoint at temperature 0, with an ordered fallback list because foundation models get
-withdrawn on a schedule) and a deterministic template that needs no credentials at all — and
-**the deterministic backend produces every figure in the report**. Run the review with no
-API key and the numbers are identical. Second, a **grounding guard** reads the model's
-narrative back: it extracts every figure the model wrote and looks for it in the tool output
-the model was shown. A figure that is not there — invented, rounded to "$1.3M", or a total
-the model added up itself — rejects the whole narrative; the deterministic backend writes
-the section instead, and the audit record keeps the rejected text and the reason. An empty
-narrative is rejected the same way. That last case is not hypothetical: the first live
-watsonx run called a chat-tuned model through the deprecated completion endpoint, got zero
-characters back, and the report shipped with a header crediting the model for a section
-that did not exist. The guard is what makes that impossible now.
+The watsonx backend uses `ibm/granite-4-h-small` over the chat endpoint at temperature 0. It
+holds an ordered list of model IDs because `granite-3-8b-instruct`, the original choice, was
+withdrawn from the catalogue during development.
 
-Three other things the agent layer does:
-
-- **Retrieval.** Three internal documents — a remediation runbook, a measurement policy, a
-  pricing reference — chunked on headings and searched with TF-IDF over word and character
-  n-grams. Recall@3 is 85%: 100% when a question uses the corpus's vocabulary, 62% when
-  paraphrased. The breakdown is reported rather than the average, because the gap is the
-  known limit of lexical retrieval and hiding it would help nobody.
-- **Governance.** Any finding over $1,000/yr, anything irreversible, anything whose owner
-  cannot be established, and any savings estimate that failed its parallel-trends check is
-  gated for human approval and is not executed. Three of four findings in the last run were
-  gated. Every run writes a JSON audit record: backend, platform, every tool call with
-  arguments and timings, every source retrieved.
-- **MCP.** The same tool registry is served over the [Model Context
-  Protocol](https://modelcontextprotocol.io), so Claude Desktop or any other MCP client can
-  call CostProof's analytics directly. The server reads `TOOL_REGISTRY` at request time —
-  one definition of what the agent may do, not two that can drift. Every tool is annotated
-  read-only, every result carries its provenance and a machine-readable governance decision,
-  every call is appended to an audit log, and the knowledge base and validation scorecard
-  are exposed as resources. Every call is validated against the tool's published JSON
-  Schema before dispatch, so a malformed call never runs and never reaches the audit log.
-  A protocol-level distinction is kept deliberately: a tool that does not exist, or a call
-  with invalid arguments, returns `isError: true`; a tool that ran and concluded "this
-  estimate is not causal" returns `isError: false` with `ok: false`, because a refused
-  savings claim is the system working, not a malfunction to retry. Targets the 2.x SDK;
-  eight tests speak the protocol to the live server over stdio.
+The same tool registry is served over the Model Context Protocol (`agent/mcp_server.py`,
+mcp 2.x): six tools, six resources, one prompt. Tools are annotated read-only, calls are
+validated against the tool's JSON Schema before dispatch, and eight tests speak the protocol to
+the live server over stdio.
 
 ```bash
-python -m costproof.cli mcp --self-test     # what a client would see
-python -m costproof.cli mcp                 # serve over stdio
+python -m costproof.cli mcp --self-test
 ```
 
-```json
-{"mcpServers": {"costproof": {"command": "python",
-                              "args": ["-m", "costproof.agent.mcp_server"]}}}
-```
-
----
+Last run: 4 findings, 3 gated, $1,348,140 annualised impact identified. $970,158 of it is
+spend with no business-unit tag, $165,406 is prepaid capacity never consumed, $212,576 is
+carried by the ten resources the classifier ranked highest.
 
 ## The finance layer
 
-Two Excel workbooks, generated from the pipeline's own outputs, answering two different
-questions. Every figure in both is a formula off a labelled assumption cell; blue is an input,
-black is a formula, green is a link. Both recalculate with zero errors.
+Two Excel workbooks, generated from the pipeline's outputs. Blue cells are inputs, black are
+formulas, green are links. Both recalculate with zero errors.
 
-**`costproof-business-case.xlsx` — should an organisation buy the measurement layer?** Its NPV
-counts only decision quality: the engineering effort no longer wasted on scaling fixes that
-did nothing. Five-year NPV **$557,508**, benefit-to-cost **6.27×**. The $115,746/yr of
-reported-savings accuracy is shown and deliberately *excluded*: reporting a number more
-accurately does not create cash, and a business case that books accounting accuracy as savings
-is making the error this project exists to prevent.
+`reports/costproof-business-case.xlsx` asks whether an organisation should adopt the
+measurement layer. Its NPV counts only decision quality: engineering effort no longer spent
+scaling fixes that did nothing. NPV $557,508 over five years, benefit-to-cost 6.27×. The
+$115,746 a year of reported-savings accuracy is shown but excluded from NPV, because reporting
+a number more accurately does not by itself create cash.
 
-**`costproof-finance-model.xlsx` — what did the optimisation programme deliver, measured
-properly, and what is it worth?** Eleven sheets: an event register of all 117 interventions;
-per-event attribution showing the before/after figure, the identified estimate, its confidence
-interval, and whether it passed the parallel-trends gate; a run-rate budget against actuals by
-business unit; a twelve-month forecast by two methods; programme ROI; Base/Bull/Bear; two
-sensitivity grids; a KPI dashboard. 2,400 formulas.
+`reports/costproof-finance-model.xlsx` asks what the optimisation programme delivered,
+measured properly. Eleven sheets: event register, per-event attribution with the
+parallel-trends gate, budget vs actual by business unit, a twelve-month forecast by two
+methods, ROI, Base/Bull/Bear, two sensitivity grids, a KPI dashboard. 2,408 formulas.
 
 | | |
 |---|---|
 | Before/after would report | $1,693,741 / yr |
 | Identified, all 117 events | $1,809,487 / yr |
-| **Credited — identified, parallel-trends gate** | **$1,872,634 / yr** |
+| Credited (identified, parallel-trends gate) | $1,872,634 / yr |
 | Programme NPV, 5 years, Base | $2,833,109 |
-| Benefit-to-cost · ROI · IRR · payback | 2.86× · 186% · 234% · 6.5 months |
+| BCR, ROI, IRR, payback | 2.86×, 186%, 234%, 6.5 months |
 | Bear case NPV | $421,595 |
 
-The gate produces the finding worth remembering: crediting **all** 117 estimates gives a *lower*
-total than crediting only the 103 that pass parallel trends, because the 14 that fail net to
-−$63K. The gate is not merely conservative; it removes noise. Two switches on the Assumptions
-sheet — attribution policy and active scenario — drive every downstream number, and a test
-confirms that no sheet outside the raw data contains a numeric literal.
+Crediting all 117 estimates gives a lower total than crediting only the 103 that pass the
+gate; the 14 failures net to −$63K. The first draft of this model had no engineering cost for
+executing the interventions and no ramp, and produced a 0.4-month payback. That draft was
+discarded.
 
-Costs include the engineering to *execute* 117 interventions (16 hours each at a loaded
-$150/hr, in year 0) and a 50% year-1 ramp, because the first draft without them produced a
-0.4-month payback and a 3,067% IRR — numbers no finance reviewer would accept, and correctly so.
+## What went wrong along the way
 
----
+The first full validation run gave 7% coverage for every method at once. I assumed the
+estimator was broken. It wasn't: the analysis pre-window reached back 84 days while the
+simulator's detection lag was 20 to 75 days, so the "before" period contained the waste the
+intervention was about to remove. Fixing the specification took DiD RMSE from 0.60 to 0.20.
+When every method fails together, suspect the data specification.
 
-## Reproducing
+The parallel-trends test originally rejected 98.3% of interventions. It was a Wald test built
+on the same cluster-robust standard errors that are invalid with one treated unit. Rebuilt on
+randomisation inference, the pass rate is 88% and the passing set has 95.1% coverage.
 
-```bash
-pip install -e ".[dev,agent,report]"
-pytest                                      # 54 tests, zero warnings (R test skips if R is absent)
-python -m costproof.cli data                # generate the estate
-python -m costproof.cli warehouse           # bronze -> silver -> gold (the SQL in sql/)
-python -m costproof.cli study               # regenerates every number above
-python -m costproof.cli review              # the governed cost review
-python scripts/build_business_case.py       # the CFO workbook
-python scripts/build_finance_model.py       # the FP&A workbook (recalculate in Excel on open)
-python -m costproof.cli crossval            # re-estimate every panel in R; needs
-                                            #   install.packages(c("plm","sandwich","data.table"))
-```
+Others, in the git history: a `None`-vs-`NaN` check that reported 0% untagged spend; a GPU SKU
+taking 63% of the estate because quantity was derived from the pricing unit; $2.58M of phantom
+commitment savings from summing a discount measure over purchase rows; three Excel workbooks
+that recalculated cleanly with wrong numbers because a hard-coded cell reference pointed at the
+wrong row; and the MCP SDK changing its handler API between 1.x and 2.x while the project was
+being built. `docs/build-notes.html` has each with its diagnosis.
 
-Everything is deterministic given the seed in `SimConfig`. Data is regenerated rather than
-committed, so nothing in this README can drift from what the code produces. watsonx is
-optional: with no `.env`, the review runs on the deterministic backend and produces the same
-figures.
+## Limits
 
----
+Enterprise billing data is confidential, so this runs on a simulator. On real data the
+counterfactual is unobservable, which means an estimator can be run but not scored; simulation
+is what makes accuracy measurable. The cost is that the simulator encodes my assumptions about
+how cloud spend behaves, so validation is optimistic to the extent those are wrong.
 
-## An honest statement about the data
+Not solved: spillovers between resources (rightsizing one service can move load to another;
+screened for, not eliminated), anticipation effects if teams throttle usage before the recorded
+action date, and staggered-adoption designs where one fix rolls across many resources over
+weeks. Retrieval is lexical and drops to 62% recall on paraphrased questions; embeddings are
+the obvious next step. The waste classifier's ROC AUC is 0.65; it ranks the top of the queue
+well and the middle poorly. See `docs/02-identification.md`.
 
-Enterprise billing data is confidential, so CostProof runs on a simulator. This is stated up
-front because a fabricated metric is the fastest way to fail an interview — the follow-up
-question is always *"how did you measure that?"*
+## Changing things
 
-But the simulator is not a compromise. On real billing data the counterfactual is
-unobservable **by definition**, which means a causal estimator can be run but never *scored*.
-Simulation is what makes the central claim testable. The claim here is not *"I saved a company
-$2M."* It is:
+Most behaviour is controlled from a few places. `SimConfig` in `simulate/generator.py` sets
+the estate: resource count, AR(1) persistence, null-intervention share, detection lag.
+`PanelSpec` in `causal/panel.py` sets the analysis window and minimum donors. The Assumptions
+sheet in each workbook drives every downstream cell. `PREFERRED_MODELS` in `agent/llm.py`
+sets the watsonx model order. Change one, rerun `study` or the script, and compare.
 
-> **"Here is an estimator, and here is exactly how accurately it recovers a known truth —
-> bias, RMSE, and interval coverage, measured over 117 interventions."**
+## Status
 
-That is a stronger claim, and a more honest one, than any dollar figure a portfolio project
-could assert.
-
-**Limits I have not solved**, stated plainly: spillovers between resources (rightsizing one
-service can shift load to another) are screened for but not eliminated; anticipation effects
-if teams throttle usage before the recorded action date; and the simulator encodes my beliefs
-about how cloud spend behaves, so validation is optimistic to the extent those beliefs are
-wrong. See `docs/02-identification.md §7`.
-
----
-
-## Roadmap
-
-- [x] FOCUS 1.2 schema, conformance validation, ground-truth simulator
-- [x] Panel construction, growth-matched donor selection
-- [x] DiD (two-way FE + cluster-robust + randomization inference), synthetic control
-- [x] Validation harness: bias, RMSE, coverage, size, power, dollar misstatement
-- [x] DuckDB medallion warehouse; allocation and unit economics
-- [x] Waste detection and classification (benign growth vs. genuine waste)
-- [x] RAG over the remediation runbook, measurement policy and pricing reference
-- [x] Governed agent with human approval gate and full audit trail; watsonx backend
-      with deterministic fallback
-- [x] MCP server over the same tool registry, with protocol-level tests
-- [x] CFO-facing Excel business case: value model, NPV, sensitivity, benefit-to-cost
-- [x] FP&A finance model: event register, gated attribution, budget vs actual, forecast,
-      ROI/IRR/payback, Base/Bull/Bear, sensitivity grids, KPI dashboard
-- [x] Cross-validation of the causal estimates in R (`plm`, `sandwich`): 117/117 to 1e-13
-- [ ] Embedding-based retrieval, to close the 62% paraphrase gap
-
----
+- [x] FOCUS 1.2 simulator with known ground truth
+- [x] Warehouse, unit economics
+- [x] DiD, permutation inference, synthetic control, parallel-trends gate, validation harness
+- [x] R cross-validation
+- [x] Waste classifier
+- [x] Retrieval, governed agent, audit records, grounding guard, watsonx, MCP server
+- [x] Business case and finance model workbooks
+- [ ] Embedding-based retrieval
 
 ## Sources
 
-- FinOps Foundation, *State of FinOps 2026* (N=685) — https://data.finops.org/
-- Flexera, *State of the Cloud 2026* (N=753), as reported — https://tech-insider.org/cloud-waste-29-percent-finops-2026/
-- *FOCUS Specification v1.2* — https://focus.finops.org/focus-specification/v1-2/
-- TechTarget, *IBM aims to reduce cloud costs with $4.6B Apptio acquisition* — https://www.techtarget.com/searchcloudcomputing/news/366542853/IBM-aims-to-reduce-cloud-costs-with-46B-Apptio-acquisition
-- Abadie, Diamond & Hainmueller (2010); Bertrand, Duflo & Mullainathan (2004); Conley & Taber (2011); Goodman-Bacon (2021) — see `docs/02-identification.md`
+- FinOps Foundation, *State of FinOps 2026*, https://data.finops.org/
+- Flexera, *State of the Cloud 2026*, as reported at https://tech-insider.org/cloud-waste-29-percent-finops-2026/
+- FOCUS Specification v1.2, https://focus.finops.org/focus-specification/v1-2/
+- TechTarget, *IBM aims to reduce cloud costs with $4.6B Apptio acquisition*
+- Abadie, Diamond & Hainmueller (2010); Bertrand, Duflo & Mullainathan (2004); Conley & Taber (2011); Goodman-Bacon (2021); Croissant & Millo (2008)
 
 MIT licensed.

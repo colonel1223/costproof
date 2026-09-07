@@ -206,7 +206,7 @@
 <section>
   <h2><span class="num">02</span> The scoreboard</h2>
 
-  <p>This is the part that matters on an application. Everything below was measured by code
+  <p>Everything below was measured by code
     in the repository against a dataset where the true answer is known, so every claim is
     checkable rather than asserted.</p>
 
@@ -273,7 +273,7 @@
   </div>
 
   <div class="note key">
-    <p class="eyebrow">The finding to lead with</p>
+    <p class="eyebrow">The central result</p>
     <p>Rows two and three have <strong>identical point estimates</strong>. Same number, same
       data, same model. Only the standard error differs. That moves coverage from 23% to 91%
       and cuts false positives from 83% to 13%.</p>
@@ -375,7 +375,7 @@
   <p>The brute-force dummy regression agreeing with the demeaned one is the
     <strong>Frisch–Waugh–Lovell theorem</strong> verified on your own data — a 1933 result
     that says partialling out the fixed effects first gives the same coefficient as including
-    them. Say that in an interview.</p>
+    them.</p>
 
   <h3>Other components</h3>
   <ul>
@@ -392,8 +392,7 @@
   <h2><span class="num">03</span> What we actually did, step by step</h2>
 
   <h3>Step 1 — Created a repository on GitHub</h3>
-  <p><strong>Goal:</strong> get the project a public web address so it can go on an
-    application. A project on your laptop is invisible; nobody can look at it.</p>
+  <p><strong>Goal:</strong> get the project a public web address. A project on your laptop is invisible; nobody can look at it.</p>
 <pre><code>git config user.name "Spencer Cottrell"
 git config user.email "261395650+colonel1223@users.noreply.github.com"
 git branch -M main
@@ -500,7 +499,7 @@ python -m costproof.cli data # run the simulator</code></pre>
     calling <code>ibm/granite-3-8b-instruct</code> with greedy decoding, and
     <code>DeterministicBackend</code>, which needs no credentials at all.</p>
   <div class="note key">
-    <p class="eyebrow">Say this in the interview</p>
+    <p class="eyebrow">Why the fallback matters</p>
     <p>The fallback isn't a convenience. Because the offline backend produces
       <strong>every number in the report</strong>, it is a standing proof that no number
       depends on the language model. The model narrates; it never calculates. If the fallback
@@ -600,7 +599,7 @@ python -m costproof.cli data # run the simulator</code></pre>
     standard error and defending one.</p>
 
   <h3>Step 17 — Hardening</h3>
-  <p>Your brief said <em>no errors</em>. A recruiter who runs <code>ruff check</code> and
+  <p>The standard was <em>no errors</em>. Anyone who runs <code>ruff check</code> and
     sees 19 findings, or <code>pytest</code> and sees 430 warnings, doesn't read further.</p>
   <ul>
     <li><strong>19 → 0 lint findings.</strong> Lambdas assigned to names became
@@ -1701,7 +1700,7 @@ python -m costproof.cli data # run the simulator</code></pre>
       goes green, <code>review</code> runs with Granite narrating, and the committed report
       carries <code>backend: watsonx:ibm/granite-3-8b-instruct</code>.</li>
     <li><strong>Presentation</strong> — LinkedIn post, the résumé bullets, and rehearsing the
-      three interview lines until they're reflex.</li>
+      key results until they're reflex.</li>
   </ol>
 
   <div class="note">
