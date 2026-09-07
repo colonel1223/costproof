@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import platform
 import sys
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -301,7 +301,8 @@ class CostReview:
 
 def render_markdown(audit: AuditRecord) -> str:
     """Render the review as a report a human can read and check."""
-    money = lambda v: f"${v:,.0f}" if v is not None else "not quantified"
+    def money(v: float | None) -> str:
+        return f"${v:,.0f}" if v is not None else "not quantified"
     out = [
         "# Cloud cost review",
         "",
@@ -324,8 +325,8 @@ def render_markdown(audit: AuditRecord) -> str:
         out += [
             f"### {f['finding_id']} — {f['title']}",
             "",
-            f"| | |",
-            f"|---|---|",
+            "| | |",
+            "|---|---|",
             f"| Category | {f['category']} |",
             f"| Annualised impact | **{money(f['annualised_impact_usd'])}** |",
             f"| Governance | {gate} |",

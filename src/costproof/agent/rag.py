@@ -253,7 +253,8 @@ def evaluate(retriever: Retriever | None = None, k: int = 3) -> dict:
 
     aligned = [x for x in rows if not x["paraphrased"]]
     para = [x for x in rows if x["paraphrased"]]
-    mean = lambda xs, key: float(np.mean([x[key] for x in xs])) if xs else float("nan")
+    def mean(xs: list[dict], key: str) -> float:
+        return float(np.mean([x[key] for x in xs])) if xs else float("nan")
 
     return {
         "n_cases": len(rows),

@@ -4,6 +4,8 @@ These launch the real server as a subprocess and speak MCP to it over stdio, exa
 as Claude Desktop or any other client would. They are not unit tests of the handler
 functions -- those would pass even if the transport, the handshake or the schema
 validation were broken. What is being tested is the contract a client depends on.
+
+Targets the 2.x SDK (`mcp>=2.0`).
 """
 
 from __future__ import annotations
@@ -42,7 +44,7 @@ def _params() -> StdioServerParameters:
 async def test_handshake_advertises_all_three_capabilities():
     async with stdio_client(_params()) as (r, w), ClientSession(r, w) as s:
         init = await s.initialize()
-        assert init.serverInfo.name == "costproof"
+        assert init.server_info.name == "costproof"
         assert init.capabilities.tools is not None
         assert init.capabilities.resources is not None
         assert init.capabilities.prompts is not None
@@ -58,9 +60,9 @@ async def test_tools_are_exactly_the_registry_and_all_read_only():
         listed = await s.list_tools()
         assert {t.name for t in listed.tools} == set(tools.TOOL_REGISTRY)
         for t in listed.tools:
-            assert t.inputSchema == tools.TOOL_REGISTRY[t.name]["parameters"]
-            assert t.annotations.readOnlyHint is True
-            assert t.annotations.destructiveHint is False
+            assert t.input_schema == tools.TOOL_REGISTRY[t.name]["parameters"]
+            assert t.annotations.read_only_hint is True
+            assert t.annotations.destructive_hint is False
 
 
 @pytest.mark.asyncio
@@ -69,8 +71,9 @@ async def test_schema_violation_is_rejected_before_the_tool_runs():
     async with stdio_client(_params()) as (r, w), ClientSession(r, w) as s:
         await s.initialize()
         res = await s.call_tool("find_waste", {"top_n": "ten"})
-        assert res.isError is True
-        assert "not of type 'integer'" in res.content[0].text
+        assert res.is_error is True
+        assert "not of type 'integer'" in res.structured_content["error"]
+        assert res.structured_content["method"] == "rejected before dispatch"
 
 
 @needs_data
@@ -80,8 +83,8 @@ async def test_result_carries_provenance_and_governance():
     async with stdio_client(_params()) as (r, w), ClientSession(r, w) as s:
         await s.initialize()
         res = await s.call_tool("get_spend_summary", {})
-        assert res.isError is False
-        sc = res.structuredContent
+        assert res.is_error is False
+        sc = res.structured_content
         assert sc["ok"] is True
         for key in ("value", "method", "caveats", "sources", "governance"):
             assert key in sc, f"missing {key}"
@@ -94,18 +97,18 @@ async def test_result_carries_provenance_and_governance():
 
 @pytest.mark.asyncio
 async def test_unknown_tool_is_a_protocol_error():
-    """Asking for a tool that does not exist is the client's mistake: isError=true."""
+    """Asking for a tool that does not exist is the client's mistake: is_error=True."""
     async with stdio_client(_params()) as (r, w), ClientSession(r, w) as s:
         await s.initialize()
         res = await s.call_tool("delete_everything", {})
-        assert res.isError is True
-        assert res.structuredContent["ok"] is False
-        assert "not in the registry" in res.structuredContent["error"]
+        assert res.is_error is True
+        assert res.structured_content["ok"] is False
+        assert "not in the registry" in res.structured_content["error"]
 
 
 @pytest.mark.asyncio
 async def test_a_considered_no_is_not_an_error():
-    """A tool that ran and found nothing has succeeded. isError must stay false.
+    """A tool that ran and found nothing has succeeded. is_error must stay False.
 
     This is the distinction the whole governance model rests on: a refused savings
     claim or an empty retrieval is information, not a malfunction to retry.
@@ -114,8 +117,8 @@ async def test_a_considered_no_is_not_an_error():
         await s.initialize()
         res = await s.call_tool("search_knowledge",
                                 {"query": "xylophone quarterback marmalade"})
-        assert res.isError is False
-        sc = res.structuredContent
+        assert res.is_error is False
+        sc = res.structured_content
         assert sc["ok"] is False
         assert "relevance floor" in sc["error"]
         assert sc["governance"]["requires_human_approval"] is False

@@ -39,7 +39,7 @@ revert, and therefore what produces mean-reversion bias in the naive estimator.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -675,7 +675,10 @@ def _to_billing(rng: np.random.Generator, cfg: SimConfig, log_q: np.ndarray,
             commit_cat = None
 
         starts = dates
-        ends = dates + pd.Timedelta(days=1)
+        # Explicit-unit numpy arithmetic. `dates + pd.Timedelta(days=1)` trips a NumPy
+        # 2.5 deprecation of generic-unit timedeltas inside pandas 2.3; this path
+        # never constructs one.
+        ends = pd.DatetimeIndex(dates.to_numpy() + np.timedelta64(1, "D"))
         blocks.append(
             pd.DataFrame(
                 {

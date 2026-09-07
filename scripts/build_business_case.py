@@ -341,7 +341,8 @@ def sheet_value(wb, A: dict[str, str], ACC: dict[str, str]):
     a_disc = A["Discount rate"]
 
     years = 5
-    col = lambda y: get_column_letter(1 + y)
+    def col(y: int) -> str:
+        return get_column_letter(1 + y)
 
     _header_row(ws, 4, ["", "Year 1", "Year 2", "Year 3", "Year 4", "Year 5"])
 
@@ -557,7 +558,7 @@ def sheet_summary(wb, m: dict, npv_cell, bcr_cell, ACC: dict[str, str]):
         ("B17", "C17", f"=-{ACC['naive']}",
          "annual misstatement of the savings programme under the naive method", MONEY),
     ]
-    for lbl_cell, val_cell, formula, caption, fmt in tiles:
+    for lbl_cell, _val_cell, formula, caption, fmt in tiles:
         r = int(lbl_cell[1:])
         c = ws.cell(row=r, column=3, value=formula)
         c.number_format = fmt

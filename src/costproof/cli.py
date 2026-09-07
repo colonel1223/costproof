@@ -2,10 +2,12 @@
 
     costproof study     regenerate every number and figure in the README
     costproof data      generate the estate and write it to data/
+    costproof warehouse run the SQL layers: bronze -> silver -> gold
     costproof check     validate FOCUS conformance of a generated estate
     costproof watsonx   verify watsonx credentials stage by stage
     costproof review    run the governed cost review and write the report
     costproof mcp       serve the tool registry over the Model Context Protocol
+    costproof crossval  re-estimate every DiD panel in R and compare to Python
 """
 
 from __future__ import annotations
@@ -48,6 +50,14 @@ def cmd_data(args: argparse.Namespace) -> int:
     est.interventions_frame().to_parquet(out / "gold" / "ground_truth_interventions.parquet")
     est.waste_frame().to_parquet(out / "gold" / "ground_truth_waste.parquet")
     print(f"  written to {out}")
+    return 0
+
+
+def cmd_warehouse(args: argparse.Namespace) -> int:
+    """Run the SQL layers in order."""
+    from costproof import warehouse
+    _banner("Building warehouse")
+    warehouse.build()
     return 0
 
 
@@ -190,6 +200,27 @@ def cmd_mcp(args: argparse.Namespace) -> int:
     return mcp_server.main(["--self-test"] if args.self_test else [])
 
 
+def cmd_crossval(args: argparse.Namespace) -> int:
+    """Export every study panel, re-estimate it in R, and compare."""
+    from costproof.causal import crossval as CV
+    from costproof.simulate.generator import SimConfig, generate
+
+    _banner("1/3  Exporting panels and Python estimates")
+    est = generate(SimConfig(seed=args.seed))
+    CV.export_panels(est)
+
+    _banner("2/3  Re-estimating in R (plm + lm + sandwich)")
+    if CV.run_r() is None:
+        return 1
+
+    _banner("3/3  Comparing")
+    both = CV.compare()
+    print(CV.report(both))
+    out = CV.write_report(both, ROOT / "reports" / "r-crossvalidation.md")
+    print(f"\n  report -> {out.relative_to(ROOT)}")
+    return 0 if bool(both["agrees"].all()) else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="costproof",
@@ -200,6 +231,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("data", help="generate the estate and write it to data/").set_defaults(
         func=cmd_data)
+    sub.add_parser("warehouse", help="run the SQL layers: bronze -> silver -> gold"
+                   ).set_defaults(func=cmd_warehouse)
     sub.add_parser("study", help="run the full validation study and regenerate figures"
                    ).set_defaults(func=cmd_study)
     sub.add_parser("check", help="validate FOCUS conformance").set_defaults(func=cmd_check)
@@ -215,6 +248,9 @@ def main(argv: list[str] | None = None) -> int:
     mcp.add_argument("--self-test", action="store_true",
                      help="print advertised tools, resources and prompts, then exit")
     mcp.set_defaults(func=cmd_mcp)
+
+    sub.add_parser("crossval", help="re-estimate every DiD panel in R and compare to Python"
+                   ).set_defaults(func=cmd_crossval)
 
     args = parser.parse_args(argv)
     return args.func(args)

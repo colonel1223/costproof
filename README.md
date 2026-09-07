@@ -176,6 +176,7 @@ inherits every weakness of the variance estimate it is built on.
 src/costproof/
   simulate/    FOCUS 1.2 schema + conformance validation; price book anchored to
                published list prices; ground-truth billing generator
+  warehouse/   runs the SQL layers in order; idempotent by construction
   causal/      panel construction, donor selection, DiD (two-way FE, hand-rolled),
                randomization inference, synthetic control, validation harness
   ml/          waste classifier: relative features, resource-level hold-out,
@@ -184,6 +185,9 @@ src/costproof/
                governed review with audit records; watsonx backend with a
                deterministic fallback; MCP server over the same registry
   report/      figures
+  causal/crossval.py   exports every study panel; joins Python and R estimates
+R/
+  crossvalidate.R      plm within estimator + lm dummies + sandwich clustered SE
 sql/
   silver_billing.sql          conform the feed; make untagged spend explicit
   gold_unit_economics.sql     cost per unit of business output, 28-day windows
@@ -193,14 +197,22 @@ docs/
   00-problem.md          the business case, fully cited
   02-identification.md   the econometrics: estimand, assumptions, threats, references
   build-notes.html       running log: every step, every number, every bug and its lesson
-tests/                   32 tests; several encode bugs found during development, and
-                         eight speak MCP to the live server over stdio
+reports/
+  cost-review.md              the governed review the agent produced
+  r-crossvalidation.md        117 panels, Python vs R, every coefficient side by side
+  costproof-business-case.xlsx
+tests/                   34 tests; several encode bugs found during development, eight
+                         speak MCP to the live server over stdio, and one runs R
 ```
 
 **The DiD estimator is implemented directly rather than called from a library** — the within
 transformation and the cluster-robust sandwich are written out, because that is where applied
-DiD most often goes wrong. It is validated against `statsmodels` on identical data and agrees
-to **machine precision** (coefficient and standard error, difference ~1e-16).
+DiD most often goes wrong. It is validated two ways. Against `statsmodels` in Python it agrees
+to ~1e-16. Against **R** — `plm::plm` for the within estimator, a brute-force `lm()` with
+explicit unit and day dummies as a Frisch–Waugh–Lovell check, and `sandwich::vcovCL` for the
+clustered standard error — it agrees on **all 117 study panels to 1.3e-13**, with a
+standard-error ratio of exactly 1.00000000. R shares no code with the Python. If the two ever
+disagreed, the disagreement would be the finding. See `reports/r-crossvalidation.md`.
 
 `tests/test_simulate.py` includes regression tests for real bugs: a `None`-vs-`NaN` coercion
 that silently reported a 0% untagged rate, and a SKU-scaling error that let one GPU SKU take
@@ -242,10 +254,13 @@ Three other things the agent layer does:
   one definition of what the agent may do, not two that can drift. Every tool is annotated
   read-only, every result carries its provenance and a machine-readable governance decision,
   every call is appended to an audit log, and the knowledge base and validation scorecard
-  are exposed as resources. A protocol-level distinction is kept deliberately: a tool that
-  does not exist returns `isError: true`; a tool that ran and concluded "this estimate is
-  not causal" returns `isError: false` with `ok: false`, because a refused savings claim is
-  the system working, not a malfunction to retry.
+  are exposed as resources. Every call is validated against the tool's published JSON
+  Schema before dispatch, so a malformed call never runs and never reaches the audit log.
+  A protocol-level distinction is kept deliberately: a tool that does not exist, or a call
+  with invalid arguments, returns `isError: true`; a tool that ran and concluded "this
+  estimate is not causal" returns `isError: false` with `ok: false`, because a refused
+  savings claim is the system working, not a malfunction to retry. Targets the 2.x SDK;
+  eight tests speak the protocol to the live server over stdio.
 
 ```bash
 python -m costproof.cli mcp --self-test     # what a client would see
@@ -263,13 +278,14 @@ python -m costproof.cli mcp                 # serve over stdio
 
 ```bash
 pip install -e ".[dev,agent,report]"
-pytest                                      # 32 tests
+pytest                                      # 34 tests, zero warnings (R test skips if R is absent)
 python -m costproof.cli data                # generate the estate
-python -c "import duckdb; duckdb.sql(open('sql/silver_billing.sql').read())"
-python -c "import duckdb; duckdb.sql(open('sql/gold_unit_economics.sql').read())"
+python -m costproof.cli warehouse           # bronze -> silver -> gold (the SQL in sql/)
 python -m costproof.cli study               # regenerates every number above
 python -m costproof.cli review              # the governed cost review
 python scripts/build_business_case.py       # the CFO workbook
+python -m costproof.cli crossval            # re-estimate every panel in R; needs
+                                            #   install.packages(c("plm","sandwich","data.table"))
 ```
 
 Everything is deterministic given the seed in `SimConfig`. Data is regenerated rather than
@@ -317,7 +333,7 @@ wrong. See `docs/02-identification.md §7`.
       with deterministic fallback
 - [x] MCP server over the same tool registry, with protocol-level tests
 - [x] CFO-facing Excel business case: value model, NPV, sensitivity, benefit-to-cost
-- [ ] Cross-validation of the causal estimates in R (`fixest`, `CausalImpact`)
+- [x] Cross-validation of the causal estimates in R (`plm`, `sandwich`): 117/117 to 1e-13
 - [ ] Embedding-based retrieval, to close the 62% paraphrase gap
 
 ---

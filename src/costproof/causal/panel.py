@@ -59,13 +59,14 @@ def build_panel(
     treated_resource: str,
     action_date: pd.Timestamp,
     donors: list[str],
-    spec: PanelSpec = PanelSpec(),
+    spec: PanelSpec | None = None,
 ) -> pd.DataFrame:
     """Long-format panel for one intervention: treated unit plus its donors.
 
     Returns columns: resource_id, date, rel_day, cost, log_cost, treated, post, treat_post.
     Rows inside the roll-out gap are dropped.
     """
+    spec = spec or PanelSpec()
     if treated_resource not in costs.columns:
         raise KeyError(f"treated resource {treated_resource!r} not in cost matrix")
 
@@ -103,7 +104,7 @@ def select_donors(
     treated_resource: str,
     action_date: pd.Timestamp,
     excluded: set[str],
-    spec: PanelSpec = PanelSpec(),
+    spec: PanelSpec | None = None,
 ) -> list[str]:
     """Choose control units for one intervention.
 
@@ -115,6 +116,7 @@ def select_donors(
     ``excluded`` must contain every resource treated anywhere in the study, because a
     treated donor would contaminate the control group and bias the estimate toward zero.
     """
+    spec = spec or PanelSpec()
     dates = costs.index
     pos = dates.get_indexer([action_date])[0]
     lo = max(0, pos - spec.pre_days)

@@ -1,15 +1,7 @@
 # Data is regenerated from code, never committed. `make data` reproduces it exactly
 # from the seed in SimConfig, so committing it would only add drift risk.
 data/
-outputs/*
-
-# ...except the figures the README displays, which MUST be committed or every image
-# renders as a broken icon on GitHub. Note the pattern: git never descends into an
-# ignored DIRECTORY, so `outputs/` + `!outputs/figures/*.png` silently does nothing.
-# You have to exclude contents and re-include level by level.
-!outputs/figures/
-outputs/figures/*
-!outputs/figures/*.png
+outputs/
 *.duckdb
 *.parquet
 
@@ -39,6 +31,9 @@ htmlcov/
 .DS_Store
 .vscode/
 .idea/
+
+# pyenv per-directory interpreter pin (machine-specific)
+.python-version
 
 # Local working notes -- not part of the public repo
 .resume.md

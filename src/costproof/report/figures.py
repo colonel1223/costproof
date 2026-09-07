@@ -116,7 +116,8 @@ def estimator_scorecard_plot(score: pd.DataFrame, out: Path) -> Path:
     _style(axes[0], "RMSE vs. known truth", "", "log points")
     axes[0].bar(x, s["rmse"], color=[BAD if "naive" in m else TREAT for m in s["method"]],
                 zorder=3, width=0.62)
-    axes[0].set_xticks(x); axes[0].set_xticklabels(s["label"], fontsize=8)
+    axes[0].set_xticks(x)
+    axes[0].set_xticklabels(s["label"], fontsize=8)
 
     _style(axes[1], "95% interval coverage", "", "share containing truth")
     cols = [GOOD if c >= 0.80 else BAD for c in s["coverage_95"]]
@@ -124,17 +125,19 @@ def estimator_scorecard_plot(score: pd.DataFrame, out: Path) -> Path:
     axes[1].axhline(0.95, color=INK, ls="--", lw=1.1, zorder=4)
     axes[1].text(len(s) - 0.45, 0.965, "nominal 95%", fontsize=7.5, color=INK, ha="right")
     axes[1].set_ylim(0, 1.08)
-    axes[1].set_xticks(x); axes[1].set_xticklabels(s["label"], fontsize=8)
+    axes[1].set_xticks(x)
+    axes[1].set_xticklabels(s["label"], fontsize=8)
 
     _style(axes[2], "False positives on null interventions", "", "share declared significant")
     cols = [GOOD if v <= 0.15 else BAD for v in s["size_false_positive"]]
     axes[2].bar(x, s["size_false_positive"], color=cols, zorder=3, width=0.62)
-    for xi, v in zip(x, s["size_false_positive"]):
+    for xi, v in zip(x, s["size_false_positive"], strict=True):
         axes[2].text(xi, v + 0.02, f"{v:.0%}", ha="center", fontsize=8, color=INK)
     axes[2].axhline(0.05, color=INK, ls="--", lw=1.1, zorder=4)
     axes[2].text(len(s) - 0.45, 0.075, "nominal 5%", fontsize=7.5, color=INK, ha="right")
     axes[2].set_ylim(0, 1.02)
-    axes[2].set_xticks(x); axes[2].set_xticklabels(s["label"], fontsize=8)
+    axes[2].set_xticks(x)
+    axes[2].set_xticklabels(s["label"], fontsize=8)
 
     fig.tight_layout()
     fig.savefig(out, bbox_inches="tight", facecolor="white")
@@ -148,7 +151,7 @@ def error_distribution_plot(results: pd.DataFrame, out: Path) -> Path:
     labels = ["naive\nbefore/after", "DiD\ncluster SE", "DiD\nrandomization",
               "synthetic\ncontrol"]
     data = [results.loc[results["method"] == m, "error"].dropna().to_numpy() for m in order]
-    keep = [(d, lab) for d, lab in zip(data, labels) if len(d)]
+    keep = [(d, lab) for d, lab in zip(data, labels, strict=True) if len(d)]
 
     fig, ax = plt.subplots(figsize=(7.6, 4.0), dpi=160)
     _style(ax, "Estimation error against known truth",

@@ -24,7 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "pytest-asyncio>=0.23", "ruff>=0.6"]
-agent = ["mcp>=1.0", "ibm-watsonx-ai>=1.1", "python-dotenv>=1.0"]
+agent = ["mcp>=2.0", "ibm-watsonx-ai>=1.1"]
 report = ["openpyxl>=3.1", "XlsxWriter>=3.2"]
 
 [project.scripts]

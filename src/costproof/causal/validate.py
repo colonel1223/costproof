@@ -33,7 +33,7 @@ from costproof.causal.synth import synthetic_control
 
 def run_study(
     estate,
-    spec: P.PanelSpec = P.PanelSpec(),
+    spec: P.PanelSpec | None = None,
     methods: tuple[str, ...] = ("naive_before_after", "did_twfe", "did_permutation",
                                 "synthetic_control"),
     verbose: bool = True,
@@ -43,6 +43,7 @@ def run_study(
     Returns one row per (intervention, method) with the estimate, its inference, the
     parallel-trends diagnostic, and the true effect.
     """
+    spec = spec or P.PanelSpec()
     costs = P.daily_resource_costs(estate.billing)
 
     # Every treated resource is excluded from every donor pool. A treated donor would
@@ -155,7 +156,7 @@ def score(results: pd.DataFrame) -> pd.DataFrame:
 
 
 def dollar_impact(estate, results: pd.DataFrame,
-                  spec: P.PanelSpec = P.PanelSpec()) -> pd.DataFrame:
+                  spec: P.PanelSpec | None = None) -> pd.DataFrame:
     """Translate log-point errors into annualised dollars.
 
     A log-point error is not persuasive to a CFO. The same error expressed as
@@ -164,6 +165,7 @@ def dollar_impact(estate, results: pd.DataFrame,
     For each intervention we take the treated resource's pre-period run rate, apply the
     estimated and true proportional effects, and annualise the difference.
     """
+    spec = spec or P.PanelSpec()
     costs = P.daily_resource_costs(estate.billing)
     dates = costs.index
 

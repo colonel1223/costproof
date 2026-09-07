@@ -10,13 +10,18 @@ what ODBC was to databases: one adapter instead of N x M.
 
 Design decisions, and why
 -------------------------
-**The low-level `Server` API, not `FastMCP`.** FastMCP derives each tool's schema from a
-decorated Python function's type hints. That would mean a second definition of every
-tool, alongside `TOOL_REGISTRY`, and two definitions drift. The low-level API lets this
-module *read* the registry at request time, so there is exactly one statement of what
-the agent may do -- which is the property the registry's own docstring promises.
+**The low-level `Server`, not `MCPServer`.** The high-level class derives each tool's
+schema from a decorated Python function's type hints. That would mean a second
+definition of every tool, alongside `TOOL_REGISTRY`, and two definitions drift. The
+low-level API lets this module *read* the registry at request time, so there is exactly
+one statement of what the agent may do -- the property the registry's docstring promises.
 
-**Every tool is annotated `readOnlyHint=True`.** Nothing in CostProof modifies a cloud
+**The server validates every call against the tool's JSON Schema before dispatch.** The
+v2 SDK leaves input validation to the low-level handler. A wrong argument type is
+rejected here with a protocol-level error, and the tool never runs -- so a rejected call
+never reaches the audit log, because nothing happened.
+
+**Every tool is annotated `read_only_hint=True`.** Nothing in CostProof modifies a cloud
 estate. The annotation is a machine-readable version of that fact, and it is what lets a
 client decide a call is safe to auto-approve. Declaring it honestly matters more than
 declaring it at all: a server that marks a destructive tool read-only has broken the
@@ -31,32 +36,40 @@ inside a client it does not control. What it can do is attach a `governance` blo
 any result whose annualised impact clears the materiality threshold, stating that the
 finding requires human sign-off before action. The gate travels with the data.
 
+**Two kinds of "no", kept distinct at the protocol level.** `is_error=True` means the
+request itself failed: the tool does not exist, the arguments were invalid, or the tool
+raised. `is_error=False` with `ok=False` means the tool ran and its considered answer is
+"no": the parallel-trends check failed, no control group could be built, no passage
+cleared the relevance floor. Collapsing the second into the first would teach a client
+that a refused savings claim is a malfunction to retry -- precisely backwards.
+
 **Every call is audited.** One JSON line per call, appended to
-``outputs/audit/mcp-calls.jsonl`` -- the same discipline as the in-process review, so an
-MCP-driven session is as reconstructable as a CLI one.
+``outputs/audit/mcp-calls.jsonl`` -- the same discipline as the in-process review.
 
 **Resources expose the evidence, not just the tools.** The knowledge base, the latest
 report and the estimator scorecard are readable directly, so a client can quote the
 runbook rather than only search it.
 
-**One prompt, `cost_review`, carries the operating rules.** The "model narrates, it never
-calculates" contract is part of the protocol surface, not something the client has to
-know in advance.
+**One prompt, `cost_review`, carries the operating rules,** and the same rules are sent
+as server `instructions` during the handshake -- before the client sees a single tool.
 
 Running it
 ----------
     python -m costproof.agent.mcp_server              # stdio transport, for a client
     python -m costproof.agent.mcp_server --self-test  # print what a client would see
 
-Claude Desktop configuration (claude_desktop_config.json):
+Claude Desktop (claude_desktop_config.json):
 
     {"mcpServers": {"costproof": {
-        "command": "python",
+        "command": "/path/to/python",
         "args": ["-m", "costproof.agent.mcp_server"]
     }}}
 
 The server changes its working directory to the repository root at startup, so the
 relative data paths in `tools.py` resolve wherever the client launched it from.
+
+Requires ``mcp>=2.0``. The 1.x SDK had a different handler API (decorators on the
+server object); this module targets the 2.x constructor-injected handlers.
 """
 
 from __future__ import annotations
@@ -71,23 +84,38 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 import mcp.types as types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from mcp.shared.exceptions import MCPError
 
 from costproof.agent import llm, tools
 from costproof.agent.review import MATERIALITY_THRESHOLD_USD
 
 SERVER_NAME = "costproof"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.2.0"
 
 #: src/costproof/agent/mcp_server.py -> parents[3] is the repository root.
 ROOT = Path(__file__).resolve().parents[3]
 KNOWLEDGE_DIR = Path(__file__).resolve().parent / "knowledge"
 AUDIT_LOG = ROOT / "outputs" / "audit" / "mcp-calls.jsonl"
 
+INSTRUCTIONS = (
+    "CostProof measures cloud cost and the causal effect of optimisations. Every tool is "
+    "read-only. Every figure you report must come verbatim from a tool result; never "
+    "compute, round or combine numbers yourself. Reproduce each result's caveats. A "
+    "result whose governance block says requires_human_approval=true must not be acted "
+    "on without saying so."
+)
+
+#: The `method` string `_timed` stamps on a tool that raised. It is the one reliable
+#: signal that a tool crashed rather than returned a considered "no".
+_CRASHED = "failed before producing a value"
+
+
 # =======================================================================================
-# Serialisation
+# Serialisation and governance
 # =======================================================================================
 
 
@@ -109,12 +137,12 @@ def _jsonable(obj: Any) -> Any:
         return {str(k): _jsonable(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple, set)):
         return [_jsonable(v) for v in obj]
-    if isinstance(obj, (np.integer,)):
+    if isinstance(obj, np.integer):
         return int(obj)
     if isinstance(obj, (np.floating, float)):
         f = float(obj)
         return None if math.isnan(f) or math.isinf(f) else f
-    if isinstance(obj, (np.bool_,)):
+    if isinstance(obj, np.bool_):
         return bool(obj)
     if isinstance(obj, (pd.Timestamp, datetime)):
         return obj.isoformat()
@@ -175,11 +203,19 @@ def _audit(entry: dict) -> None:
         print(f"audit write failed: {exc}", file=sys.stderr)
 
 
+def _error_result(payload: dict) -> types.CallToolResult:
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text=json.dumps(payload, indent=2))],
+        structured_content=payload,
+        is_error=True,
+    )
+
+
 # =======================================================================================
 # Resources
 # =======================================================================================
 
-#: Static resources. URI -> (path, mime, description). Paths relative to ROOT.
+#: Static resources. URI -> (path, mime, description).
 RESOURCES: dict[str, tuple[Path, str, str]] = {
     "costproof://knowledge/remediation-runbook": (
         KNOWLEDGE_DIR / "01-remediation-runbook.md", "text/markdown",
@@ -205,76 +241,75 @@ RESOURCES: dict[str, tuple[Path, str, str]] = {
 
 
 # =======================================================================================
-# Server
+# Handlers  --  each is  async (ctx, params) -> Result
 # =======================================================================================
 
-server = Server(
-    SERVER_NAME,
-    version=SERVER_VERSION,
-    # Delivered to the client at initialisation, before it sees a single tool. This is
-    # the protocol's designated place for operating rules the client should know.
-    instructions=(
-        "CostProof measures cloud cost and the causal effect of optimisations. Every "
-        "tool is read-only. Every figure you report must come verbatim from a tool "
-        "result; never compute, round or combine numbers yourself. Reproduce each "
-        "result's caveats. A result whose governance block says "
-        "requires_human_approval=true must not be acted on without saying so."
-    ),
-)
 
-
-@server.list_tools()
-async def list_tools() -> list[types.Tool]:
-    """Advertise exactly what TOOL_REGISTRY contains -- nothing more, nothing less."""
-    out = []
-    for name, entry in tools.TOOL_REGISTRY.items():
-        out.append(types.Tool(
+def tool_definitions() -> list[types.Tool]:
+    """Exactly what TOOL_REGISTRY contains -- nothing more, nothing less."""
+    return [
+        types.Tool(
             name=name,
             description=entry["description"],
-            inputSchema=entry["parameters"],
+            input_schema=entry["parameters"],
             annotations=types.ToolAnnotations(
                 title=name.replace("_", " "),
-                readOnlyHint=True,      # nothing in CostProof mutates an estate
-                destructiveHint=False,
-                idempotentHint=True,    # same inputs, same data -> same answer
-                openWorldHint=False,    # reads local Parquet, calls no external service
+                read_only_hint=True,      # nothing in CostProof mutates an estate
+                destructive_hint=False,
+                idempotent_hint=True,     # same inputs, same data -> same answer
+                open_world_hint=False,    # reads local Parquet, calls no external service
             ),
-        ))
-    return out
+        )
+        for name, entry in tools.TOOL_REGISTRY.items()
+    ]
 
 
-#: The `method` string `_timed` stamps on a tool that raised. It is the one reliable
-#: signal that a tool crashed rather than returned a considered "no".
-_CRASHED = "failed before producing a value"
+async def on_list_tools(ctx, params) -> types.ListToolsResult:
+    return types.ListToolsResult(tools=tool_definitions())
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
-    """Run a registry tool and return its full provenance.
-
-    Two different kinds of "not ok", and the protocol must tell them apart:
-
-    * **isError = true** -- the request itself failed. The tool does not exist, or it
-      raised. The client should treat the call as having produced nothing.
-    * **isError = false, ok = false** -- the tool ran and its considered answer is "no":
-      the parallel-trends check failed, no control group could be built, no passage
-      cleared the relevance floor. That is an analytical outcome, not a failure, and it
-      is often the most valuable thing the tool can say.
-
-    Collapsing the second into the first would teach a client that a refused savings
-    claim is a malfunction to retry, which is precisely backwards.
-
-    The SDK has already validated `arguments` against the tool's inputSchema.
-    """
+async def on_call_tool(ctx, params: types.CallToolRequestParams) -> types.CallToolResult:
+    """Validate, run, wrap with provenance and governance, audit."""
+    name = params.name
+    arguments: dict[str, Any] = dict(params.arguments or {})
     started = datetime.now(timezone.utc).isoformat()
     t0 = time.perf_counter()
 
-    # Some tools are CPU-heavy (find_waste trains a model). Run them off the event
-    # loop so the server keeps answering list/ping requests meanwhile.
+    # --- 1. does it exist? -------------------------------------------------------------
+    entry = tools.TOOL_REGISTRY.get(name)
+    if entry is None:
+        return _error_result({
+            "tool": name, "ok": False, "value": None,
+            "method": "unknown tool",
+            "error": f"{name!r} is not in the registry. Available: "
+                     f"{sorted(tools.TOOL_REGISTRY)}",
+            "caveats": [], "sources": [],
+            "governance": {"requires_human_approval": False, "reasons": ["no tool ran"],
+                           "annualised_impact_usd": None, "note": ""},
+        })
+
+    # --- 2. do the arguments match the published schema? --------------------------------
+    # The 2.x low-level server leaves this to the handler. Rejecting here means a bad
+    # call never runs and never reaches the audit log -- nothing happened.
+    try:
+        jsonschema.validate(instance=arguments, schema=entry["parameters"])
+    except jsonschema.ValidationError as exc:
+        return _error_result({
+            "tool": name, "ok": False, "value": None,
+            "method": "rejected before dispatch",
+            "error": f"Input validation error: {exc.message}",
+            "caveats": [], "sources": [],
+            "governance": {"requires_human_approval": False, "reasons": ["no tool ran"],
+                           "annualised_impact_usd": None, "note": ""},
+        })
+
+    # --- 3. run it, off the event loop ---------------------------------------------------
+    # Some tools are CPU-heavy (find_waste trains a model). to_thread keeps the server
+    # answering list/ping requests meanwhile.
     result: tools.ToolResult = await asyncio.to_thread(tools.call, name, **arguments)
 
     value = _jsonable(result.value)
-    is_error = name not in tools.TOOL_REGISTRY or result.method == _CRASHED
+    is_error = result.method == _CRASHED
     payload = {
         "tool": name,
         "ok": result.ok,
@@ -294,38 +329,44 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResul
     })
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=json.dumps(payload, indent=2))],
-        structuredContent=payload,
-        isError=is_error,
+        structured_content=payload,
+        is_error=is_error,
     )
 
 
-@server.list_resources()
-async def list_resources() -> list[types.Resource]:
+def resource_definitions() -> list[types.Resource]:
     """Only advertise files that exist. A resource that 404s is worse than none."""
-    out = []
-    for uri, (path, mime, desc) in RESOURCES.items():
-        if path.exists():
-            out.append(types.Resource(
-                uri=uri, name=uri.split("//", 1)[1], description=desc,
-                mimeType=mime, size=path.stat().st_size,
-            ))
-    return out
+    return [
+        types.Resource(
+            uri=uri, name=uri.split("//", 1)[1], description=desc,
+            mime_type=mime, size=path.stat().st_size,
+        )
+        for uri, (path, mime, desc) in RESOURCES.items()
+        if path.exists()
+    ]
 
 
-@server.read_resource()
-async def read_resource(uri) -> str:
-    key = str(uri)
+async def on_list_resources(ctx, params) -> types.ListResourcesResult:
+    return types.ListResourcesResult(resources=resource_definitions())
+
+
+async def on_read_resource(ctx, params: types.ReadResourceRequestParams
+                           ) -> types.ReadResourceResult:
+    key = str(params.uri)
     if key not in RESOURCES:
-        raise ValueError(f"unknown resource {key!r}; available: {sorted(RESOURCES)}")
-    path, _, _ = RESOURCES[key]
+        raise MCPError(types.INVALID_PARAMS,
+                       f"unknown resource {key!r}; available: {sorted(RESOURCES)}")
+    path, mime, _ = RESOURCES[key]
     if not path.exists():
-        raise FileNotFoundError(f"{key} is registered but {path} has not been generated "
-                                f"yet -- run `python -m costproof.cli review` or `study`")
-    return path.read_text()
+        raise MCPError(types.INVALID_PARAMS,
+                       f"{key} is registered but {path.name} has not been generated yet "
+                       f"-- run `python -m costproof.cli review` or `study`")
+    return types.ReadResourceResult(contents=[
+        types.TextResourceContents(uri=key, mime_type=mime, text=path.read_text()),
+    ])
 
 
-@server.list_prompts()
-async def list_prompts() -> list[types.Prompt]:
+def prompt_definitions() -> list[types.Prompt]:
     return [types.Prompt(
         name="cost_review",
         description=("Run a governed cloud cost review: spend, unit economics, "
@@ -339,11 +380,14 @@ async def list_prompts() -> list[types.Prompt]:
     )]
 
 
-@server.get_prompt()
-async def get_prompt(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
-    if name != "cost_review":
-        raise ValueError(f"unknown prompt {name!r}")
-    focus = (arguments or {}).get("focus", "").strip()
+async def on_list_prompts(ctx, params) -> types.ListPromptsResult:
+    return types.ListPromptsResult(prompts=prompt_definitions())
+
+
+async def on_get_prompt(ctx, params: types.GetPromptRequestParams) -> types.GetPromptResult:
+    if params.name != "cost_review":
+        raise MCPError(types.INVALID_PARAMS, f"unknown prompt {params.name!r}")
+    focus = (params.arguments or {}).get("focus", "").strip()
     task = (
         "Run a cloud cost review using the costproof tools. Call, in order: "
         "get_spend_summary, get_unit_economics, check_commitment_waste, then find_waste "
@@ -357,52 +401,64 @@ async def get_prompt(name: str, arguments: dict[str, str] | None) -> types.GetPr
     )
     return types.GetPromptResult(
         description="Governed cost review with grounded remediation guidance",
-        messages=[
-            types.PromptMessage(role="user", content=types.TextContent(
-                type="text", text=llm.SYSTEM_PROMPT + "\n\n---\n\n" + task)),
-        ],
+        messages=[types.PromptMessage(
+            role="user",
+            content=types.TextContent(type="text",
+                                      text=llm.SYSTEM_PROMPT + "\n\n---\n\n" + task),
+        )],
     )
 
 
 # =======================================================================================
-# Entry points
+# Server
 # =======================================================================================
 
 
+def build_server() -> Server:
+    """Construct the server. Handlers are injected, which is the 2.x idiom."""
+    return Server(
+        SERVER_NAME,
+        version=SERVER_VERSION,
+        instructions=INSTRUCTIONS,
+        on_list_tools=on_list_tools,
+        on_call_tool=on_call_tool,
+        on_list_resources=on_list_resources,
+        on_read_resource=on_read_resource,
+        on_list_prompts=on_list_prompts,
+        on_get_prompt=on_get_prompt,
+    )
+
+
 async def _serve() -> None:
+    server = build_server()
     async with stdio_server() as (read, write):
         await server.run(read, write, server.create_initialization_options())
 
 
 def self_test() -> int:
     """Print what a client would see. No transport, no client needed."""
-    async def _run():
-        tl = await list_tools()
-        rl = await list_resources()
-        pl = await list_prompts()
-        return tl, rl, pl
-
-    tl, rl, pl = asyncio.run(_run())
+    tl, rl, pl = tool_definitions(), resource_definitions(), prompt_definitions()
     print(f"\n{SERVER_NAME} MCP server v{SERVER_VERSION}  (root: {ROOT})\n")
     print(f"TOOLS ({len(tl)})")
     for t in tl:
-        req = t.inputSchema.get("required", [])
-        props = t.inputSchema.get("properties", {})
+        req = t.input_schema.get("required", [])
+        props = t.input_schema.get("properties", {})
         sig = ", ".join(f"{p}{'' if p in req else '?'}" for p in props) or "—"
         print(f"  {t.name:24s} ({sig})")
         print(f"  {'':24s} {t.description}")
     print(f"\nRESOURCES ({len(rl)} available of {len(RESOURCES)} registered)")
     for r in rl:
-        print(f"  {str(r.uri):46s} {r.mimeType:14s} {r.size or 0:>7,} bytes")
-    missing = [u for u, (p, _, _) in RESOURCES.items() if not p.exists()]
-    for u in missing:
-        print(f"  {u:46s} (not generated yet)")
+        print(f"  {str(r.uri):46s} {r.mime_type:14s} {r.size or 0:>7,} bytes")
+    for u, (p, _, _) in RESOURCES.items():
+        if not p.exists():
+            print(f"  {u:46s} (not generated yet)")
     print(f"\nPROMPTS ({len(pl)})")
     for p in pl:
         args = ", ".join(a.name + ("" if a.required else "?") for a in (p.arguments or []))
         print(f"  {p.name:24s} ({args or '—'})")
     print(f"\nAUDIT LOG  {AUDIT_LOG.relative_to(ROOT)}")
-    print(f"GATE       human approval at >= ${MATERIALITY_THRESHOLD_USD:,.0f}/yr annualised impact\n")
+    print(f"GATE       human approval at >= ${MATERIALITY_THRESHOLD_USD:,.0f}/yr "
+          f"annualised impact\n")
     return 0
 
 
