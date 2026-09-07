@@ -164,7 +164,7 @@
 <div class="wrap">
 
 <header class="masthead">
-  <p class="eyebrow">Running notes · updated 7 September 2026</p>
+  <p class="eyebrow">Running notes · updated 7 September 2026, evening</p>
   <h1>CostProof Build Notes</h1>
   <p class="standfirst">What we've done, why we did it, every number it produced, and every
     term worth knowing — in the order we hit them.</p>
@@ -174,9 +174,11 @@
 <section>
   <h2><span class="num">01</span> Where we are</h2>
 
-  <p>Thirteen of the fourteen things the project set out to demonstrate are built and
-    running. The repository has eight commits, 5,161 lines of Python, 265 lines of SQL and
-    just over a thousand lines of written documentation.</p>
+  <p><strong>All fourteen</strong> things the project set out to demonstrate are built,
+    tested and pushed. The repository has ten commits, roughly 5,900 lines of Python, 265
+    lines of SQL, 130 lines of R, 34 passing tests with zero warnings, and zero lint
+    findings. The one open item is the watsonx service association, which is an account
+    problem rather than a code problem.</p>
 
   <div class="track">
     <div class="done"><span class="mark">DONE</span><span>Research the problem, write the causal engine</span></div>
@@ -192,10 +194,11 @@
     <div class="done"><span class="mark">DONE</span><span>Agentic review with a tool registry and governance gates</span></div>
     <div class="done"><span class="mark">DONE</span><span>watsonx integration written, with graceful degradation</span></div>
     <div class="done"><span class="mark">DONE</span><span>Excel business case — NPV, sensitivity, benefit-to-cost</span></div>
-    <div class="now"><span class="mark">NOW</span><span>Commit the business case, republish these notes</span></div>
-    <div><span class="mark">NEXT</span><span>MCP server exposing the tool registry</span></div>
-    <div><span class="mark">NEXT</span><span>R cross-validation of the causal estimates</span></div>
-    <div class="block"><span class="mark">BLOCK</span><span>watsonx service association — institutional account restriction</span></div>
+    <div class="done"><span class="mark">DONE</span><span>MCP server over the tool registry — ported to the 2.x SDK, 8 protocol tests</span></div>
+    <div class="done"><span class="mark">DONE</span><span>R cross-validation — 117 of 117 panels agree with <code>plm</code> to 1.2×10⁻¹³</span></div>
+    <div class="done"><span class="mark">DONE</span><span>Hardening — 19 → 0 lint findings, 430 → 0 test warnings, <code>warehouse</code> command</span></div>
+    <div class="now"><span class="mark">NOW</span><span>These notes, then watsonx</span></div>
+    <div class="block"><span class="mark">BLOCK</span><span>watsonx service association — SJSU account restriction; fix is a personal IBM Cloud account</span></div>
   </div>
 </section>
 
@@ -344,6 +347,35 @@
       many are real?</em> — and it is the metric that makes the baseline comparison damning:
       the threshold rule raises 318 alerts to find 2.8% of the problem.</p>
   </div>
+
+  <h3>The estimator, checked by a second language</h3>
+  <p>A hand-rolled estimator carries an obligation: prove it against a reference
+    implementation that shares nothing with it. Every one of the 117 panels was exported and
+    re-estimated in R three ways — <code>plm::plm</code> (the canonical panel-econometrics
+    package, same within transformation), a brute-force <code>lm()</code> with 178 explicit
+    dummies, and <code>sandwich::vcovCL</code> for the clustered standard error.</p>
+  <div class="score">
+    <div>
+      <p class="k">Panels agreeing</p>
+      <p class="v up">117 / 117</p>
+      <p class="c">Python two-way demeaning vs R <code>plm</code>, tolerance 10⁻⁸.</p>
+    </div>
+    <div>
+      <p class="k">Largest disagreement</p>
+      <p class="v up">1.2 × 10⁻¹³</p>
+      <p class="c">Floating-point noise. Two OLS routines summing 5,000 terms in different
+        orders.</p>
+    </div>
+    <div>
+      <p class="k">Clustered-SE ratio</p>
+      <p class="v up">1.00000000</p>
+      <p class="c">Python ÷ R, on every panel. Same small-sample convention, proven.</p>
+    </div>
+  </div>
+  <p>The brute-force dummy regression agreeing with the demeaned one is the
+    <strong>Frisch–Waugh–Lovell theorem</strong> verified on your own data — a 1933 result
+    that says partialling out the fixed effects first gives the same coefficient as including
+    them. Say that in an interview.</p>
 
   <h3>Other components</h3>
   <ul>
@@ -503,11 +535,94 @@ python -m costproof.cli data # run the simulator</code></pre>
       of thing a CFO stops reading. Leaving it out and saying why is worth more than the
       $115,746 would have added.</p>
   </div>
+
+  <h3>Step 14 — The MCP server</h3>
+  <p><code>src/costproof/agent/mcp_server.py</code>. The Model Context Protocol is an open
+    standard for connecting a language model to tools, data and prompts over one interface —
+    to model-tool integration what ODBC was to databases. Your server exposes all three
+    primitives: <strong>6 tools</strong> read live from <code>TOOL_REGISTRY</code>,
+    <strong>6 resources</strong> (the three runbooks, the latest report, the two validation
+    tables), and <strong>1 prompt</strong> carrying the operating rules.</p>
+  <p>Five design decisions, each defensible:</p>
+  <ul>
+    <li><strong>Low-level <code>Server</code>, not the high-level class.</strong> The
+      high-level class derives schemas from Python type hints, which would mean a second
+      definition of every tool. The low-level API reads the registry at request time — one
+      statement of what the agent may do.</li>
+    <li><strong>Every tool annotated read-only.</strong> <code>read_only_hint=True</code>,
+      <code>destructive_hint=False</code>, <code>idempotent_hint=True</code>,
+      <code>open_world_hint=False</code>. Honest capability declaration is what lets a client
+      auto-approve safely.</li>
+    <li><strong>Schema validation before dispatch.</strong> Every call is checked against the
+      tool's JSON Schema. <code>find_waste(top_n="ten")</code> is rejected with
+      <code>'ten' is not of type 'integer'</code> and never runs — so it never reaches the
+      audit log, because nothing happened.</li>
+    <li><strong>Provenance and governance travel with every result.</strong> Method,
+      caveats, sources, and a <code>governance</code> block applying the same $1,000/yr gate
+      as the in-process review.</li>
+    <li><strong>Two kinds of "no", kept distinct.</strong> Unknown tool or bad arguments →
+      <code>isError: true</code>. Tool ran and concluded "this estimate is not causal" →
+      <code>isError: false, ok: false</code>. A refused savings claim is the system working,
+      not a malfunction to retry.</li>
+  </ul>
+  <p>Eight tests launch the real server as a subprocess and speak the protocol to it over
+    stdio — handshake, capability advertisement, schema rejection, provenance, the two kinds
+    of no, resources, prompt. And it's wired into Claude Desktop: ask it about your untagged
+    spend and it calls <em>your</em> code on <em>your</em> data.</p>
+
+  <h3>Step 15 — The SDK broke underneath us, and we shipped red</h3>
+  <p>My environment had resolved <code>mcp 1.27</code>; your <code>pip install</code> got
+    <code>2.2.0</code>. Between them the low-level API changed shape entirely: handlers
+    moved from decorators to constructor injection, field names went snake_case, and the SDK
+    stopped validating tool inputs for you. The server passed 8 tests here and crashed on
+    import on your Mac — and you committed and pushed with 8 failures showing.</p>
+  <p>The port took one careful read of the v2 source. The lesson is in the bugs section
+    below, and it changed <code>pyproject.toml</code>: <code>mcp&gt;=1.0</code> became
+    <code>mcp&gt;=2.0</code>.</p>
+
+  <h3>Step 16 — R cross-validation</h3>
+  <p><code>src/costproof/causal/crossval.py</code> rebuilds every study panel exactly as
+    <code>run_study</code> does and writes them to one CSV — 660,756 resource-days — with
+    Python's coefficient and clustered SE for each. <code>R/crossvalidate.R</code> reads it
+    and re-estimates every panel with <code>plm</code>, with <code>lm()</code> plus explicit
+    dummies, and with <code>sandwich::vcovCL</code>. <code>python -m costproof.cli
+    crossval</code> runs the whole thing and writes
+    <code>reports/r-crossvalidation.md</code> with all 117 rows side by side.</p>
+  <p>CSV rather than Parquet on purpose: the point of a cross-validation is a second
+    implementation with as few shared dependencies as possible, and Parquet would have made
+    R depend on Arrow. A CSV depends on nothing.</p>
+  <p>The one subtlety worth owning: <code>plm</code>'s own clustered SE came out 1.5%
+    smaller than Python's. Not a bug — a convention. The small-sample correction is
+    G/(G−1) × (N−1)/(N−K), and <code>plm</code> counts K as 1 (just the slope) while
+    Python counts 178 (slope plus every absorbed fixed effect).
+    <code>sandwich::vcovCL(type="HC1")</code> uses Python's convention and matches to eight
+    digits. Knowing which convention a package uses is the difference between reporting a
+    standard error and defending one.</p>
+
+  <h3>Step 17 — Hardening</h3>
+  <p>Your brief said <em>no errors</em>. A recruiter who runs <code>ruff check</code> and
+    sees 19 findings, or <code>pytest</code> and sees 430 warnings, doesn't read further.</p>
+  <ul>
+    <li><strong>19 → 0 lint findings.</strong> Lambdas assigned to names became
+      <code>def</code>s; four functions calling <code>PanelSpec()</code> in a default argument
+      now resolve it in the body; semicolon-joined statements split; <code>zip()</code> made
+      <code>strict=True</code>; unused imports removed.</li>
+    <li><strong>430 → 0 test warnings.</strong> One line in the generator — <code>dates +
+      pd.Timedelta(days=1)</code> — tripped a NumPy 2.5 deprecation inside pandas 2.3.
+      Replaced with explicit-unit numpy arithmetic. Proven a no-op by generating the estate
+      with old and new code side by side: every column identical.</li>
+    <li><strong><code>python -m costproof.cli warehouse</code>.</strong> A real
+      <code>warehouse/</code> package that runs the SQL layers in order, replacing two
+      <code>python -c</code> one-liners. Ran it twice and hashed the output: byte-identical.
+      That's idempotence demonstrated, not asserted.</li>
+    <li><strong>Removed the empty <code>econ/</code> package.</strong> An empty module in a
+      public repo reads as scaffolding nobody finished.</li>
+  </ul>
 </section>
 
 <!-- ===================================================== -->
 <section>
-  <h2><span class="num">04</span> Nine bugs, and what each one taught</h2>
+  <h2><span class="num">04</span> Thirteen bugs, and what each one taught</h2>
 
   <p>Keep these. They are the difference between a project you built and a project you can
     talk about. Every one of them was found by checking output against something known,
@@ -614,14 +729,69 @@ python -m costproof.cli data # run the simulator</code></pre>
       worth more than producing it anyway. A finance reader will notice either way.</p>
   </div>
 
+  <div class="bug">
+    <h4>10. The MCP SDK changed its API between my machine and yours</h4>
+    <p><code>pyproject.toml</code> said <code>mcp&gt;=1.0</code> — "anything from 1.0 up is
+      fine." That was true until 2.0 shipped with a different handler API. My environment had
+      1.27; your <code>pip install</code> got 2.2.0; the server crashed on import; all 8
+      protocol tests failed with <code>Connection closed</code> — a message that says nothing.
+      The <em>captured stderr</em> of the subprocess said everything:
+      <code>'Server' object has no attribute 'list_tools'</code>.</p>
+    <p class="lesson"><strong>Lesson:</strong> a major version number is a promise that
+      things changed incompatibly. Pin the major of anything whose API you call directly.
+      And when a client error is generic, go read the server's own log — the useful message
+      is always on the side that actually broke.</p>
+  </div>
+
+  <div class="bug">
+    <h4>11. You committed with 8 red tests</h4>
+    <p>The commit went through because git doesn't care whether tests pass. For twenty
+      minutes the public repository showed 8 failures to anyone who cloned it.</p>
+    <p class="lesson"><strong>Lesson:</strong> the commit command comes <em>after</em> the
+      green test run, never in the same paste. A pre-push hook that runs <code>pytest</code>
+      would make this impossible; for now the rule is procedural.</p>
+  </div>
+
+  <div class="bug">
+    <h4>12. Unknown tool returned <code>isError: false</code></h4>
+    <p>The first server treated "tool doesn't exist" the same as "tool ran and said no" — a
+      normal response with <code>ok: false</code> inside. A test caught it. The fix drew the
+      line the whole governance model rests on: the <em>request</em> failing is a protocol
+      error; the <em>tool</em> concluding "this estimate is not causal" is a successful
+      result that happens to be a refusal.</p>
+    <p class="lesson"><strong>Lesson:</strong> collapsing those two would teach a client that
+      a refused savings claim is a malfunction to retry — precisely backwards. Write the
+      test for the distinction, not just for the happy path.</p>
+  </div>
+
+  <div class="bug">
+    <h4>13. Two Pythons, and <code>source ~/.zshrc</code> switched which one won</h4>
+    <p>Your Mac has pyenv (3.11) and miniconda (3.13). CostProof lives in miniconda's. After
+      re-sourcing your shell config, pyenv's shims jumped ahead on <code>PATH</code>, so
+      <code>python</code> and <code>pip</code> silently became 3.11 — no <code>costproof</code>,
+      no <code>mcp</code> — while <code>pytest</code> (which pyenv doesn't have) still ran
+      under 3.13. That's how you got <code>1 skipped</code>: the MCP tests skip themselves
+      when the SDK isn't importable. Fixed with <code>pyenv local system</code>, which tells
+      the shim to step aside inside this project.</p>
+    <p class="lesson"><strong>Lesson:</strong> <code>python</code> and <code>pip</code> can be
+      different interpreters. Always <code>python -m pip</code>. And when a test suite
+      reports <em>skipped</em> rather than <em>passed</em>, the green isn't real.</p>
+  </div>
+
   <div class="note">
-    <p class="eyebrow">One more, about reproducibility</p>
+    <p class="eyebrow">Two more, about reproducibility</p>
     <p>A pandas <code>FutureWarning</code> couldn't be reproduced in the cloud environment
       because it runs pandas 3.0.2 and your Mac runs 2.3.3 — downgraded because
       <code>ibm-watsonx-ai</code> pins <code>pandas&lt;2.4.0</code>. The first diagnosis
       ("empty frame") was wrong; the real cause was all-NA columns in a concat. <strong>A
       dependency you didn't choose can pin a version you didn't notice, and version drift
       between two machines is a real and ordinary source of "works on mine."</strong></p>
+    <p>And after the timedelta fix, the regenerated Parquet file's checksum changed. First
+      instinct: the fix altered the data. It hadn't — the previous file simply predated an
+      earlier fix. Proven by generating with both versions of the line and comparing every
+      column, and by writing the same frame twice to confirm Parquet itself is
+      deterministic. <strong>Bit-identical and value-identical are different claims. When a
+      checksum moves, find out <em>what</em> moved before concluding anything.</strong></p>
   </div>
 </section>
 
@@ -1127,6 +1297,37 @@ python -m costproof.cli data # run the simulator</code></pre>
       parameter ρ. The simulator uses ρ = 0.90, meaning shocks decay slowly. Persistence is
       what makes waste look like a level shift rather than a blip, and getting it wrong is
       what caused bug #3.</dd>
+
+    <dt>Within transformation <span class="also">demeaning</span></dt>
+    <dd>Subtract each unit's mean and each period's mean from every observation, add back
+      the grand mean, then regress. This sweeps out the fixed effects without estimating
+      them. It is what <code>did.py</code> does by hand and what R's <code>plm</code> does
+      inside <code>model = "within"</code>.</dd>
+
+    <dt>Frisch–Waugh–Lovell theorem</dt>
+    <dd>Partialling a set of regressors out of both sides first, then regressing the
+      residuals, gives the identical coefficient to including those regressors directly.
+      Proven 1933. It is why demeaning and a 178-dummy <code>lm()</code> agree to
+      7×10⁻¹³ on your panels — and it's the theorem that makes fixed-effects estimation
+      computationally feasible on large panels at all.</dd>
+
+    <dt>Small-sample corrections <span class="also">HC1, sss</span></dt>
+    <dd>Cluster-robust variance is scaled by G/(G−1) × (N−1)/(N−K). The catch is what K
+      counts. <code>sandwich::vcovCL(type = "HC1")</code> and your Python count the
+      absorbed fixed effects in K; <code>plm::vcovHC(type = "sss")</code> counts only the
+      slopes. On your panels that's a 1.5% difference in the SE from the same data and the
+      same model. Neither is wrong; they answer slightly different questions.</dd>
+
+    <dt><code>plm</code></dt>
+    <dd>R's canonical panel-data package (Croissant &amp; Millo, <em>Journal of Statistical
+      Software</em>, 2008). Fixed effects, random effects, first differences, Hausman tests.
+      The reference implementation your estimator was checked against.</dd>
+
+    <dt>Cross-validation of an estimator</dt>
+    <dd>Not the ML sense (train/test folds). Here it means: re-implement the same
+      estimator independently — different code, different language, different author — on
+      the same data, and require the answers to agree. Agreement to machine precision across
+      117 panels is the strongest correctness claim the project makes.</dd>
   </dl>
 </section>
 
@@ -1282,6 +1483,54 @@ python -m costproof.cli data # run the simulator</code></pre>
     <dt>Greedy decoding</dt>
     <dd>Always take the highest-probability next token instead of sampling. Makes output
       reproducible, which matters when the output goes into an audit record.</dd>
+
+    <dt>The three MCP primitives</dt>
+    <dd><strong>Tools</strong> — functions the model may call. <strong>Resources</strong> —
+      data the model may read, addressed by URI (<code>costproof://knowledge/…</code>).
+      <strong>Prompts</strong> — reusable templates with arguments. Most demo servers only do
+      tools; using all three is the difference between a wrapper and an integration.</dd>
+
+    <dt>JSON-RPC 2.0 and stdio</dt>
+    <dd>MCP messages are JSON-RPC: a method name, params, and an id to match responses to
+      requests. <strong>stdio</strong> transport means the client launches the server as a
+      subprocess and talks through stdin/stdout — the standard for local servers, and what
+      Claude Desktop uses. HTTP with server-sent events is the remote alternative.</dd>
+
+    <dt>Handshake <span class="also">initialize</span></dt>
+    <dd>The first exchange: protocol version, server name and version, and
+      <strong>capabilities</strong> — which primitives the server supports. Your server also
+      sends <strong>instructions</strong> here, so the "model narrates, never calculates" rule
+      arrives before the client sees a single tool.</dd>
+
+    <dt>Tool annotations</dt>
+    <dd><code>readOnlyHint</code>, <code>destructiveHint</code>, <code>idempotentHint</code>,
+      <code>openWorldHint</code>. Machine-readable claims about what a tool does to the
+      world. A client uses them to decide what's safe to auto-approve. A server that marks a
+      destructive tool read-only has broken the trust model.</dd>
+
+    <dt>Input schema and protocol-level validation</dt>
+    <dd>Each tool publishes a JSON Schema for its arguments. Validating against it
+      <em>before dispatch</em> means a malformed call fails at the boundary with a precise
+      message, and the tool's own code never has to defend against bad types.</dd>
+
+    <dt><code>isError</code> vs <code>ok</code></dt>
+    <dd><code>isError</code> is the protocol's flag: the <em>request</em> failed.
+      <code>ok</code> is CostProof's: the <em>analysis</em> reached a positive conclusion. A
+      parallel-trends failure is <code>isError: false, ok: false</code> — the request
+      succeeded and the answer is no. Keeping them separate is what stops a client retrying a
+      refusal.</dd>
+
+    <dt>Low-level vs high-level server</dt>
+    <dd>The high-level class (<code>MCPServer</code>, formerly FastMCP) derives tool schemas
+      from decorated Python functions — fast to write, but a second definition of every
+      tool. The low-level <code>Server</code> takes handlers you write yourself, so the schema
+      can come from wherever the truth lives. You chose low-level so
+      <code>TOOL_REGISTRY</code> stays the single source of truth.</dd>
+
+    <dt>Structured content</dt>
+    <dd>A tool result can carry both human-readable text and a machine-readable JSON object.
+      Yours sends both: the same payload as pretty-printed text for a model to read and as
+      <code>structuredContent</code> for a program to parse.</dd>
   </dl>
 </section>
 
@@ -1330,7 +1579,77 @@ python -m costproof.cli data # run the simulator</code></pre>
 
 <!-- ===================================================== -->
 <section>
-  <h2><span class="num">15</span> Every command you've run</h2>
+  <h2><span class="num">15</span> Terms — engineering hygiene</h2>
+  <p>None of these is glamorous. All of them are what separates a repository someone trusts
+    from one they close.</p>
+  <dl class="gloss">
+    <dt>Semantic versioning <span class="also">semver</span></dt>
+    <dd><code>MAJOR.MINOR.PATCH</code>. Patch = bug fix, minor = new feature, compatible;
+      <strong>major = something changed incompatibly</strong>. <code>mcp&gt;=1.0</code> was a
+      promise to accept any future major version blind. Pin the major of anything whose API
+      you call directly: <code>mcp&gt;=2.0,&lt;3</code> is the careful form.</dd>
+
+    <dt>PATH and shims</dt>
+    <dd>The shell runs the first matching executable it finds walking <code>PATH</code> left
+      to right. pyenv puts a directory of <strong>shims</strong> — tiny scripts named
+      <code>python</code>, <code>pip</code> — at the front; each shim asks pyenv which version
+      applies (env var, then <code>.python-version</code> in the directory tree, then the
+      global) and forwards to it. <code>system</code> means "step aside." That's what
+      <code>pyenv local system</code> wrote into your project.</dd>
+
+    <dt><code>python -m pip</code></dt>
+    <dd>Runs pip <em>as a module of this exact interpreter</em>, so what you install goes
+      where <code>python</code> will look. Bare <code>pip</code> can be a different
+      interpreter's pip. This one habit prevents an entire class of "but I installed it."</dd>
+
+    <dt>Idempotence</dt>
+    <dd>Running a step twice leaves the same result as running it once.
+      <code>OVERWRITE TRUE</code> in the SQL is what buys it. Proven, not assumed: the
+      warehouse was built twice and the Parquet output hashed identically.</dd>
+
+    <dt>Determinism vs bit-identity</dt>
+    <dd>Same inputs → same values is determinism. Same inputs → same bytes on disk is
+      stronger and depends on the file format's metadata. Parquet from pandas is
+      bit-deterministic; not everything is. When a checksum changes, check whether the
+      <em>values</em> did before concluding anything.</dd>
+
+    <dt>Linting <span class="also">ruff</span></dt>
+    <dd>Static analysis that flags patterns known to cause bugs or confuse readers, without
+      running the code. Not all findings are bugs — but <code>zip()</code> without
+      <code>strict=True</code> is a real one (unequal lengths silently truncate), and a reader
+      who sees nineteen findings doesn't check which. Zero is the only number that costs
+      nothing to explain.</dd>
+
+    <dt>Function call in a default argument <span class="also">B008</span></dt>
+    <dd><code>def f(spec=PanelSpec())</code> evaluates <code>PanelSpec()</code> once, when
+      the function is defined, and every call shares that object. Harmless for a frozen
+      dataclass, dangerous for anything mutable — the classic <code>def f(items=[])</code>
+      bug. Idiom: <code>spec=None</code>, then <code>spec = spec or PanelSpec()</code>
+      inside.</dd>
+
+    <dt>Skipped is not passed</dt>
+    <dd>A test framework reports <em>skipped</em> when a precondition isn't met. Green with a
+      skip count means part of the suite didn't run. The MCP tests skip when the SDK isn't
+      importable — which is exactly how a wrong interpreter hid a broken server.</dd>
+
+    <dt><code>git commit --amend</code> and <code>--force-with-lease</code></dt>
+    <dd>Amend rewrites the most recent commit in place instead of adding a new one.
+      <code>--force-with-lease</code> pushes that rewrite but refuses if the remote moved in
+      the meantime — the safe form of force-push. Used to pull <code>.resume.md</code> back
+      out of the public history. For an actual secret you'd rotate it regardless, because
+      rewritten commits can linger in caches.</dd>
+
+    <dt>Case-insensitive filesystems</dt>
+    <dd>macOS treats <code>r/</code> and <code>R/</code> as the same directory; Linux
+      doesn't. Code that referenced <code>r/</code> while git recorded <code>R/</code> worked
+      on your Mac and would have failed on any Linux clone. Fixed to match git. Test on the
+      platform your reviewer uses, not only your own.</dd>
+  </dl>
+</section>
+
+<!-- ===================================================== -->
+<section>
+  <h2><span class="num">16</span> Every command you've run</h2>
   <div class="scroller">
     <table>
       <thead><tr><th>Command</th><th>What it does</th></tr></thead>
@@ -1354,6 +1673,16 @@ python -m costproof.cli data # run the simulator</code></pre>
         <tr><td><code>python -m costproof.cli watsonx</code></td><td>One live inference call against Granite</td></tr>
         <tr><td><code>python -m costproof.cli review</code></td><td>Run the agent, write the report and audit record</td></tr>
         <tr><td><code>python scripts/build_business_case.py</code></td><td>Generate the five-sheet Excel workbook</td></tr>
+        <tr><td><code>python -m costproof.cli warehouse</code></td><td>Run the SQL layers bronze → silver → gold</td></tr>
+        <tr><td><code>python -m costproof.cli mcp --self-test</code></td><td>Print what an MCP client would see</td></tr>
+        <tr><td><code>python -m costproof.cli crossval</code></td><td>Export panels, re-estimate in R, compare</td></tr>
+        <tr><td><code>pytest tests/test_mcp_server.py -v</code></td><td>Eight protocol-level tests against the live server</td></tr>
+        <tr><td><code>pytest</code></td><td>All 34 tests</td></tr>
+        <tr><td><code>ruff check src tests scripts</code></td><td>Lint everything; expect "All checks passed"</td></tr>
+        <tr><td><code>pyenv local system</code></td><td>Make pyenv step aside in this project</td></tr>
+        <tr><td><code>Rscript -e 'install.packages(...)'</code></td><td>Install R packages from CRAN</td></tr>
+        <tr><td><code>git commit --amend --no-edit</code></td><td>Rewrite the last commit in place</td></tr>
+        <tr><td><code>git push --force-with-lease</code></td><td>Push a rewritten commit, safely</td></tr>
         <tr><td><code>ls -lh data/bronze data/gold</code></td><td>List those files with readable sizes</td></tr>
       </tbody>
     </table>
@@ -1362,21 +1691,17 @@ python -m costproof.cli data # run the simulator</code></pre>
 
 <!-- ===================================================== -->
 <section>
-  <h2><span class="num">16</span> What's left</h2>
+  <h2><span class="num">17</span> What's left</h2>
   <ol>
-    <li><strong>MCP server</strong> — wrap the existing tool registry as an MCP server. The
-      tools already declare JSON schemas, so this is an adapter, not new logic. It closes the
-      loop on the MCP: Advanced Topics certificate.</li>
-    <li><strong>R cross-validation</strong> — re-estimate a sample of the interventions in R
-      with <code>fixest</code> and <code>CausalImpact</code>. Two independent implementations
-      agreeing is a much stronger claim than one implementation asserting.</li>
-    <li><strong>watsonx association</strong> — blocked by what looks like a permission
-      restriction on the institutional account. The workaround is a personal IBM Cloud
-      account. The integration code is written and the credential checker will confirm it in
-      one command once the association exists.</li>
-    <li><strong>Finish TEA</strong> — the tariff-exposure-agent repository still has one
-      commit and unresolved TODOs. IBM's own advice was <em>finish what you started</em>, and
-      an abandoned repo next to a finished one undercuts the finished one.</li>
+    <li><strong>watsonx association</strong> — the only open item, and it's an account
+      problem, not a code problem. The SJSU institutional account can't attach the watsonx.ai
+      Runtime service to a project. The fix is a personal IBM Cloud account on the free Lite
+      plan: provision one Runtime instance, create a project, associate the service, mint a
+      fresh API key into <code>.env</code>. Then <code>python -m costproof.cli watsonx</code>
+      goes green, <code>review</code> runs with Granite narrating, and the committed report
+      carries <code>backend: watsonx:ibm/granite-3-8b-instruct</code>.</li>
+    <li><strong>Presentation</strong> — LinkedIn post, the résumé bullets, and rehearsing the
+      three interview lines until they're reflex.</li>
   </ol>
 
   <div class="note">
