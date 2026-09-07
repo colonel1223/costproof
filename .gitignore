@@ -1,0 +1,41 @@
+# Data is regenerated from code, never committed. `make data` reproduces it exactly
+# from the seed in SimConfig, so committing it would only add drift risk.
+data/
+outputs/*
+
+# ...except the figures the README displays, which MUST be committed or every image
+# renders as a broken icon on GitHub. Note the pattern: git never descends into an
+# ignored DIRECTORY, so `outputs/` + `!outputs/figures/*.png` silently does nothing.
+# You have to exclude contents and re-include level by level.
+!outputs/figures/
+outputs/figures/*
+!outputs/figures/*.png
+*.duckdb
+*.parquet
+
+# Secrets -- watsonx credentials live here and must never be committed.
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# R
+.Rhistory
+.RData
+.Rproj.user/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
