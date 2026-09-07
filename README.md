@@ -201,8 +201,9 @@ reports/
   cost-review.md              the governed review the agent produced
   r-crossvalidation.md        117 panels, Python vs R, every coefficient side by side
   costproof-business-case.xlsx
-tests/                   34 tests; several encode bugs found during development, eight
-                         speak MCP to the live server over stdio, and one runs R
+tests/                   39 tests; several encode bugs found during development, eight
+                         speak MCP to the live server over stdio, one runs R, and five
+                         pin the model-fallback logic against a changing catalogue
 ```
 
 **The DiD estimator is implemented directly rather than called from a library** — the within
@@ -230,7 +231,8 @@ The language model chooses which tool to call and rewrites the result into prose
 computes nothing.
 
 That rule is enforced architecturally rather than by prompt. There are two backends behind
-one interface — IBM watsonx (`ibm/granite-3-8b-instruct`, greedy decoding) and a
+one interface — IBM watsonx (Granite, `ibm/granite-4-h-small`, greedy decoding, with an
+ordered fallback list because foundation models get withdrawn on a schedule) and a
 deterministic template that needs no credentials at all — and **the deterministic backend
 produces every figure in the report**. Run the review with no API key and the numbers are
 identical. If they weren't, that would be evidence the model was doing arithmetic somewhere
@@ -278,7 +280,7 @@ python -m costproof.cli mcp                 # serve over stdio
 
 ```bash
 pip install -e ".[dev,agent,report]"
-pytest                                      # 34 tests, zero warnings (R test skips if R is absent)
+pytest                                      # 39 tests, zero warnings (R test skips if R is absent)
 python -m costproof.cli data                # generate the estate
 python -m costproof.cli warehouse           # bronze -> silver -> gold (the SQL in sql/)
 python -m costproof.cli study               # regenerates every number above

@@ -27,10 +27,51 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-#: IBM Granite. Chosen over a larger general model because this workload is short
-#: structured summarisation of tool output, where a small instruction-tuned model is
-#: sufficient, materially cheaper, and -- for an IBM-targeted project -- IBM's own.
-DEFAULT_MODEL = "ibm/granite-3-8b-instruct"
+#: IBM Granite, in order of preference. Chosen over a larger general model because this
+#: workload is short structured summarisation of tool output, where a small
+#: instruction-tuned model is sufficient, materially cheaper, and -- for an IBM-targeted
+#: project -- IBM's own.
+#:
+#: It is a *list* because foundation models are withdrawn from the catalogue on a
+#: schedule. ``granite-3-8b-instruct`` was the original choice and was retired in
+#: September 2026; the backend tries each entry in turn and reports which one it got.
+#: Hard-coding a single model ID is a time bomb.
+PREFERRED_MODELS: tuple[str, ...] = (
+    "ibm/granite-4-h-small",          # Granite 4.0 hybrid, instruction-tuned
+    "ibm/granite-3-3-8b-instruct",    # Granite 3.3, if the catalogue still carries it
+    "ibm/granite-3-2-8b-instruct",
+    "ibm/granite-3-8b-instruct",      # original choice; withdrawn Sept 2026
+)
+DEFAULT_MODEL = PREFERRED_MODELS[0]
+
+#: Substring watsonx puts in the error when a model ID is not in the catalogue. Anything
+#: else -- 401, 403, 404, network -- is not a model problem and must not be swallowed.
+_MODEL_UNAVAILABLE = "not supported"
+
+
+def resolve_model(factory, candidates=PREFERRED_MODELS):
+    """Return ``(model_id, model)`` for the first candidate ``factory`` accepts.
+
+    ``factory(model_id)`` constructs the client-side model object, which is where the
+    SDK validates the ID against the live catalogue. A "not supported" rejection moves
+    to the next candidate; any other exception is re-raised immediately, because a bad
+    credential must never be reported as "no model available".
+    """
+    unavailable: list[str] = []
+    for model_id in candidates:
+        try:
+            return model_id, factory(model_id)
+        except Exception as exc:  # noqa: BLE001 -- we inspect and re-raise below
+            if _MODEL_UNAVAILABLE in str(exc).lower():
+                unavailable.append(model_id)
+                continue
+            raise
+    raise LookupError(
+        "none of the preferred models is available in this watsonx environment: "
+        + ", ".join(unavailable)
+        + ". Pick one from the 'Supported models' list in the error above and add it to "
+        "PREFERRED_MODELS."
+    )
 
 
 def load_dotenv(path: str | Path = ".env") -> dict[str, str]:
@@ -83,20 +124,28 @@ class WatsonxBackend:
         api_key = os.environ["WATSONX_API_KEY"]
         project_id = os.environ["WATSONX_PROJECT_ID"]
         url = os.environ.get("WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
+        credentials = Credentials(url=url, api_key=api_key)
 
-        self._model = ModelInference(
-            model_id=self.model_id,
-            credentials=Credentials(url=url, api_key=api_key),
-            project_id=project_id,
-            params={
-                # Near-deterministic. This is a reporting system: the same question on
-                # the same data should produce the same words, or the audit record is
-                # not reproducible and the governance claim is hollow.
-                "decoding_method": "greedy",
-                "max_new_tokens": 700,
-                "repetition_penalty": 1.05,
-            },
-        )
+        def factory(model_id: str) -> ModelInference:
+            return ModelInference(
+                model_id=model_id,
+                credentials=credentials,
+                project_id=project_id,
+                params={
+                    # Near-deterministic. This is a reporting system: the same question
+                    # on the same data should produce the same words, or the audit
+                    # record is not reproducible and the governance claim is hollow.
+                    "decoding_method": "greedy",
+                    "max_new_tokens": 700,
+                    "repetition_penalty": 1.05,
+                },
+            )
+
+        # The requested model first, then the preference list. The SDK validates the ID
+        # against the live catalogue inside the constructor, so a withdrawn model fails
+        # here rather than on the first inference call.
+        candidates = (self.model_id, *(m for m in PREFERRED_MODELS if m != self.model_id))
+        self.model_id, self._model = resolve_model(factory, candidates)
         self.name = f"watsonx:{self.model_id}"
 
     def generate(self, prompt: str, system: str = "", max_tokens: int = 700) -> str:

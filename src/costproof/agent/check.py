@@ -121,8 +121,11 @@ def run(env_file: str | Path = ".env", verbose: bool = True) -> dict:
             max_tokens=8,
         )
         elapsed = (time.perf_counter() - t0) * 1000
+        requested = llm.PREFERRED_MODELS[0]
+        note = "" if backend.model_id == requested else \
+            f"  (fell back from {requested}, which this catalogue no longer carries)"
         stage("Inference call succeeded", True,
-              f"model {backend.model_id}, {elapsed:.0f}ms, replied {text[:40]!r}")
+              f"model {backend.model_id}, {elapsed:.0f}ms, replied {text[:40]!r}{note}")
         results["ok"] = True
         results["model"] = backend.model_id
         results["latency_ms"] = round(elapsed, 1)
@@ -131,7 +134,11 @@ def run(env_file: str | Path = ".env", verbose: bool = True) -> dict:
         message = str(exc)
         fix = "check the API key and project ID"
         low = message.lower()
-        if "not_authorized" in low or "403" in low or "forbidden" in low:
+        if "not supported" in low:
+            fix = ("every model in llm.PREFERRED_MODELS has been withdrawn from this "
+                   "catalogue. Copy one instruction-tuned model ID from the 'Supported "
+                   "models' list above into PREFERRED_MODELS.")
+        elif "not_authorized" in low or "403" in low or "forbidden" in low:
             fix = ("associate a Watson Machine Learning service with the project: "
                    "project -> Manage -> Services & integrations -> Associate service. "
                    "This is the most common cause and the error never mentions it.")
